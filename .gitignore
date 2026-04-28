@@ -1,0 +1,24 @@
+# ===== IDE =====
+.idea/
+*.iml
+
+# ===== Gradle =====
+.gradle/
+build/
+local.properties
+
+# ===== Kotlin / JVM =====
+*.class
+*.jar
+*.war
+out/
+
+# ===== Environment / Secrets =====
+.env
+.env.*
+!.env.example
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
