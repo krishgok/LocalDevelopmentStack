@@ -71,7 +71,9 @@ class GoServiceGenerator : ServiceGenerator {
 
         func (h *HelloHandler) Hello(w http.ResponseWriter, r *http.Request) {
         	w.Header().Set("Content-Type", "application/json")
-        	json.NewEncoder(w).Encode(map[string]string{"message": h.helloService.GetGreeting()})
+        	if err := json.NewEncoder(w).Encode(map[string]string{"message": h.helloService.GetGreeting()}); err != nil {
+        		http.Error(w, "encoding response", http.StatusInternalServerError)
+        	}
         }
     """.trimIndent()
 

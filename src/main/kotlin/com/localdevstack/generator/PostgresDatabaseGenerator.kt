@@ -14,6 +14,11 @@ class PostgresDatabaseGenerator : DatabaseGenerator {
     private fun dockerComposeYml() = """
         version: '3.8'
 
+        # WARNING: these credentials are for LOCAL DEVELOPMENT ONLY.
+        # Change POSTGRES_PASSWORD (and the application.properties datasource password)
+        # before committing or deploying to any shared environment.
+        # Better yet, use a .env file and reference variables with ${"\${VAR_NAME}"} syntax.
+
         services:
           postgres:
             image: postgres:16
@@ -21,7 +26,7 @@ class PostgresDatabaseGenerator : DatabaseGenerator {
             environment:
               POSTGRES_DB: app_db
               POSTGRES_USER: postgres
-              POSTGRES_PASSWORD: postgres
+              POSTGRES_PASSWORD: ${"$"}{POSTGRES_PASSWORD:-postgres_dev_only}
             ports:
               - "5432:5432"
             volumes:

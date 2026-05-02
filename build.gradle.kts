@@ -14,6 +14,13 @@ repositories {
 dependencies {
     implementation(kotlin("stdlib"))
     implementation("info.picocli:picocli:4.7.5")
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 application {

@@ -4,9 +4,9 @@ import com.localdevstack.generator.CockroachDbDatabaseGenerator
 import com.localdevstack.generator.GoServiceGenerator
 import com.localdevstack.generator.MongoDbDatabaseGenerator
 import com.localdevstack.generator.MySqlDatabaseGenerator
-import com.localdevstack.generator.NodeServiceGenerator
 import com.localdevstack.generator.PostgresDatabaseGenerator
 import com.localdevstack.generator.PythonServiceGenerator
+import com.localdevstack.generator.NodeServiceGenerator
 import com.localdevstack.generator.RustServiceGenerator
 import com.localdevstack.generator.SpringBootServiceGenerator
 import picocli.CommandLine.Command
@@ -45,15 +45,14 @@ class LocalDevStackCli : Runnable {
     )
     var projectName: String = "hello-service"
 
+    @Option(
+        names = ["--force", "-f"],
+        description = ["Overwrite existing output directory without prompting"]
+    )
+    var force: Boolean = false
+
     override fun run() {
-        val outputPath = Path.of(outputDir).toAbsolutePath()
-
-        println("Generating local development stack...")
-        println("  Service  : $serviceType")
-        println("  Database : $databaseType")
-        println("  Output   : $outputPath")
-        println()
-
+        // Resolve both types before touching the filesystem
         val serviceGenerator = when (serviceType.lowercase()) {
             "springboot" -> SpringBootServiceGenerator()
             "go"         -> GoServiceGenerator()
@@ -76,6 +75,32 @@ class LocalDevStackCli : Runnable {
                 return
             }
         }
+
+        val outputPath = Path.of(outputDir).toAbsolutePath().normalize()
+
+        // Reject paths that escape the current working directory
+        val cwd = Path.of("").toAbsolutePath()
+        if (!outputPath.startsWith(cwd)) {
+            System.err.println("Output directory must be within the current working directory: $cwd")
+            return
+        }
+
+        // Warn if the output directory already contains files
+        val outputFile = outputPath.toFile()
+        if (outputFile.exists() && (outputFile.list()?.isNotEmpty() == true)) {
+            if (!force) {
+                System.err.println("Output directory '$outputPath' already exists and is not empty.")
+                System.err.println("Use --force to overwrite existing files.")
+                return
+            }
+            println("WARNING: overwriting existing files in $outputPath")
+        }
+
+        println("Generating local development stack...")
+        println("  Service  : $serviceType")
+        println("  Database : $databaseType")
+        println("  Output   : $outputPath")
+        println()
 
         serviceGenerator.generate(outputPath, projectName)
         databaseGenerator.generate(outputPath)

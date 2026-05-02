@@ -14,6 +14,9 @@ class MongoDbDatabaseGenerator : DatabaseGenerator {
     private fun dockerComposeYml() = """
         version: '3.8'
 
+        # MongoDB runs without authentication by default in this local setup.
+        # Add MONGO_INITDB_ROOT_USERNAME / MONGO_INITDB_ROOT_PASSWORD for any shared environment.
+
         services:
           mongodb:
             image: mongo:7
