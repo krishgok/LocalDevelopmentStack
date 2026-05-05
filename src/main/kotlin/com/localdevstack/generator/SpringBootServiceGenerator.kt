@@ -24,8 +24,8 @@ class SpringBootServiceGenerator : ServiceGenerator {
         Files.writeString(serviceDir.resolve("build.gradle.kts"), buildGradleKts())
         Files.writeString(serviceDir.resolve("settings.gradle.kts"), settingsGradleKts(projectName))
         Files.writeString(srcKotlinDir.resolve("Application.kt"), applicationKt())
-        Files.writeString(controllerDir.resolve("HelloController.kt"), helloControllerKt())
-        Files.writeString(serviceLayerDir.resolve("HelloService.kt"), helloServiceKt())
+        Files.writeString(controllerDir.resolve("HealthController.kt"), healthControllerKt())
+        Files.writeString(serviceLayerDir.resolve("HealthService.kt"), healthServiceKt())
         Files.writeString(resourcesDir.resolve("application.properties"), applicationProperties())
 
         println("  [OK] Spring Boot service  ->  $serviceDir")
@@ -81,31 +81,29 @@ class SpringBootServiceGenerator : ServiceGenerator {
         }
     """.trimIndent()
 
-    private fun helloControllerKt() = """
+    private fun healthControllerKt() = """
         package $packageName.controller
 
-        import $packageName.service.HelloService
+        import $packageName.service.HealthService
         import org.springframework.web.bind.annotation.GetMapping
-        import org.springframework.web.bind.annotation.RequestMapping
         import org.springframework.web.bind.annotation.RestController
 
         @RestController
-        @RequestMapping("/api")
-        class HelloController(private val helloService: HelloService) {
+        class HealthController(private val healthService: HealthService) {
 
-            @GetMapping("/hello")
-            fun hello(): Map<String, String> = mapOf("message" to helloService.getGreeting())
+            @GetMapping("/health")
+            fun health(): Map<String, String> = mapOf("status" to healthService.status())
         }
     """.trimIndent()
 
-    private fun helloServiceKt() = """
+    private fun healthServiceKt() = """
         package $packageName.service
 
         import org.springframework.stereotype.Service
 
         @Service
-        class HelloService {
-            fun getGreeting(): String = "Hello, World!"
+        class HealthService {
+            fun status(): String = "ok"
         }
     """.trimIndent()
 

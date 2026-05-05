@@ -3,37 +3,36 @@ package com.localdevstack.generator
 import java.nio.file.Files
 import java.nio.file.Path
 
-class MySqlDatabaseGenerator : DatabaseGenerator {
+class SqlServerDatabaseGenerator : DatabaseGenerator {
 
     override fun generate(outputDir: Path, serviceConfig: ServiceComposeConfig?) {
         Files.createDirectories(outputDir)
         Files.writeString(outputDir.resolve("docker-compose.yml"), dockerComposeYml(serviceConfig))
-        println("  [OK] MySQL database       ->  ${outputDir.resolve("docker-compose.yml")}")
+        println("  [OK] SQL Server           ->  ${outputDir.resolve("docker-compose.yml")}")
     }
 
     private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
         appendLine("version: '3.8'")
         appendLine()
         appendLine("# WARNING: these credentials are for LOCAL DEVELOPMENT ONLY.")
-        appendLine("# Change MYSQL_ROOT_PASSWORD and MYSQL_PASSWORD before committing or deploying.")
+        appendLine("# SQL Server requires a strong password (min 8 chars, upper+lower+digit+symbol).")
         appendLine()
         appendLine("services:")
         appendLine("  db:")
-        appendLine("    image: mysql:8")
-        appendLine("    container_name: local-mysql")
+        appendLine("    image: mcr.microsoft.com/mssql/server:2022-latest")
+        appendLine("    container_name: local-sqlserver")
         appendLine("    environment:")
-        appendLine("      MYSQL_DATABASE: app_db")
-        appendLine("      MYSQL_ROOT_PASSWORD: \${MYSQL_ROOT_PASSWORD:-root_dev_only}")
-        appendLine("      MYSQL_USER: mysql")
-        appendLine("      MYSQL_PASSWORD: \${MYSQL_PASSWORD:-mysql_dev_only}")
+        appendLine("      ACCEPT_EULA: \"Y\"")
+        appendLine("      SA_PASSWORD: \${SA_PASSWORD:-DevOnly_123!}")
+        appendLine("      MSSQL_DB: app_db")
         appendLine("    ports:")
-        appendLine("      - \"3306:3306\"")
+        appendLine("      - \"1433:1433\"")
         appendLine("    volumes:")
-        appendLine("      - mysql_data:/var/lib/mysql")
+        appendLine("      - sqlserver_data:/var/opt/mssql")
         appendLine("    healthcheck:")
-        appendLine("      test: [\"CMD\", \"mysqladmin\", \"ping\", \"-h\", \"localhost\", \"-u\", \"root\", \"-p\${MYSQL_ROOT_PASSWORD:-root_dev_only}\"]")
-        appendLine("      interval: 10s")
-        appendLine("      timeout: 5s")
+        appendLine("      test: [\"CMD-SHELL\", \"/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \$${SA_PASSWORD:-DevOnly_123!} -Q 'SELECT 1' || exit 1\"]")
+        appendLine("      interval: 15s")
+        appendLine("      timeout: 10s")
         appendLine("      retries: 5")
         if (serviceConfig != null) {
             appendLine()
@@ -41,6 +40,6 @@ class MySqlDatabaseGenerator : DatabaseGenerator {
         }
         appendLine()
         appendLine("volumes:")
-        append("  mysql_data:")
+        append("  sqlserver_data:")
     }
 }

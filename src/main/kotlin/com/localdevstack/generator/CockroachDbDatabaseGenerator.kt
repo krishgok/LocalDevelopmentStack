@@ -5,32 +5,36 @@ import java.nio.file.Path
 
 class CockroachDbDatabaseGenerator : DatabaseGenerator {
 
-    override fun generate(outputDir: Path) {
+    override fun generate(outputDir: Path, serviceConfig: ServiceComposeConfig?) {
         Files.createDirectories(outputDir)
-        Files.writeString(outputDir.resolve("docker-compose.yml"), dockerComposeYml())
+        Files.writeString(outputDir.resolve("docker-compose.yml"), dockerComposeYml(serviceConfig))
         println("  [OK] CockroachDB database ->  ${outputDir.resolve("docker-compose.yml")}")
     }
 
-    private fun dockerComposeYml() = """
-        version: '3.8'
-
-        services:
-          cockroachdb:
-            image: cockroachdb/cockroach:latest-v23.2
-            container_name: local-cockroachdb
-            command: start-single-node --insecure
-            ports:
-              - "26257:26257"  # SQL (PostgreSQL wire protocol)
-              - "8090:8080"    # Admin UI (host port 8090 avoids conflict with the service on 8080)
-            volumes:
-              - cockroach_data:/cockroach/cockroach-data
-            healthcheck:
-              test: ["CMD", "curl", "-f", "http://localhost:8080/health?ready=1"]
-              interval: 10s
-              timeout: 5s
-              retries: 5
-
-        volumes:
-          cockroach_data:
-    """.trimIndent()
+    private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
+        appendLine("version: '3.8'")
+        appendLine()
+        appendLine("services:")
+        appendLine("  db:")
+        appendLine("    image: cockroachdb/cockroach:latest-v23.2")
+        appendLine("    container_name: local-cockroachdb")
+        appendLine("    command: start-single-node --insecure")
+        appendLine("    ports:")
+        appendLine("      - \"26257:26257\"  # SQL (PostgreSQL wire protocol)")
+        appendLine("      - \"8090:8080\"    # Admin UI (host 8090 avoids conflict with service on 8080)")
+        appendLine("    volumes:")
+        appendLine("      - cockroach_data:/cockroach/cockroach-data")
+        appendLine("    healthcheck:")
+        appendLine("      test: [\"CMD\", \"curl\", \"-f\", \"http://localhost:8080/health?ready=1\"]")
+        appendLine("      interval: 10s")
+        appendLine("      timeout: 5s")
+        appendLine("      retries: 5")
+        if (serviceConfig != null) {
+            appendLine()
+            appendServiceBlock(serviceConfig)
+        }
+        appendLine()
+        appendLine("volumes:")
+        append("  cockroach_data:")
+    }
 }

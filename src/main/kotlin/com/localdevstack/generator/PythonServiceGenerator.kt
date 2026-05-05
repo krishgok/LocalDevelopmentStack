@@ -19,9 +19,9 @@ class PythonServiceGenerator : ServiceGenerator {
         Files.writeString(serviceDir.resolve("requirements.txt"), requirementsTxt())
         Files.writeString(serviceDir.resolve("main.py"), mainPy())
         Files.writeString(routerDir.resolve("__init__.py"), "")
-        Files.writeString(routerDir.resolve("hello_router.py"), helloRouterPy())
+        Files.writeString(routerDir.resolve("health_router.py"), healthRouterPy())
         Files.writeString(serviceLayerDir.resolve("__init__.py"), "")
-        Files.writeString(serviceLayerDir.resolve("hello_service.py"), helloServicePy())
+        Files.writeString(serviceLayerDir.resolve("health_service.py"), healthServicePy())
 
         println("  [OK] Python service       ->  $serviceDir")
     }
@@ -33,27 +33,27 @@ class PythonServiceGenerator : ServiceGenerator {
 
     private fun mainPy() = """
         from fastapi import FastAPI
-        from router.hello_router import router
+        from router.health_router import router
 
         app = FastAPI()
         app.include_router(router)
     """.trimIndent()
 
-    private fun helloRouterPy() = """
+    private fun healthRouterPy() = """
         from fastapi import APIRouter
-        from service.hello_service import HelloService
+        from service.health_service import HealthService
 
-        router = APIRouter(prefix="/api")
-        _hello_service = HelloService()
+        router = APIRouter()
+        _health_service = HealthService()
 
-        @router.get("/hello")
-        def hello():
-            return {"message": _hello_service.get_greeting()}
+        @router.get("/health")
+        def health():
+            return {"status": _health_service.status()}
     """.trimIndent()
 
-    private fun helloServicePy() = """
-        class HelloService:
-            def get_greeting(self) -> str:
-                return "Hello, World!"
+    private fun healthServicePy() = """
+        class HealthService:
+            def status(self) -> str:
+                return "ok"
     """.trimIndent()
 }

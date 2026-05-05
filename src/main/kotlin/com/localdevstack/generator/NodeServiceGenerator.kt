@@ -18,8 +18,8 @@ class NodeServiceGenerator : ServiceGenerator {
 
         Files.writeString(serviceDir.resolve("package.json"), packageJson(projectName))
         Files.writeString(serviceDir.resolve("index.js"), indexJs())
-        Files.writeString(routesDir.resolve("hello.js"), helloRouteJs())
-        Files.writeString(servicesDir.resolve("helloService.js"), helloServiceJs())
+        Files.writeString(routesDir.resolve("health.js"), healthRouteJs())
+        Files.writeString(servicesDir.resolve("healthService.js"), healthServiceJs())
 
         println("  [OK] Node.js service      ->  $serviceDir")
     }
@@ -40,32 +40,32 @@ class NodeServiceGenerator : ServiceGenerator {
 
     private fun indexJs() = """
         const express = require('express');
-        const helloRoute = require('./routes/hello');
+        const healthRoute = require('./routes/health');
 
         const app = express();
         app.use(express.json());
-        app.use('/api', helloRoute);
+        app.use(healthRoute);
 
         app.listen(8080, () => console.log('Server running on :8080'));
     """.trimIndent()
 
-    private fun helloRouteJs() = """
+    private fun healthRouteJs() = """
         const express = require('express');
         const router = express.Router();
-        const helloService = require('../services/helloService');
+        const healthService = require('../services/healthService');
 
-        router.get('/hello', (req, res) => {
-            res.json({ message: helloService.getGreeting() });
+        router.get('/health', (req, res) => {
+            res.json({ status: healthService.getStatus() });
         });
 
         module.exports = router;
     """.trimIndent()
 
-    private fun helloServiceJs() = """
-        function getGreeting() {
-            return 'Hello, World!';
+    private fun healthServiceJs() = """
+        function getStatus() {
+            return 'ok';
         }
 
-        module.exports = { getGreeting };
+        module.exports = { getStatus };
     """.trimIndent()
 }

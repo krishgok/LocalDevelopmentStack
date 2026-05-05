@@ -18,8 +18,8 @@ class GoServiceGenerator : ServiceGenerator {
 
         Files.writeString(serviceDir.resolve("go.mod"), goMod(projectName))
         Files.writeString(serviceDir.resolve("main.go"), mainGo(projectName))
-        Files.writeString(handlerDir.resolve("hello_handler.go"), helloHandlerGo(projectName))
-        Files.writeString(serviceLayerDir.resolve("hello_service.go"), helloServiceGo())
+        Files.writeString(handlerDir.resolve("health_handler.go"), healthHandlerGo())
+        Files.writeString(serviceLayerDir.resolve("health_service.go"), healthServiceGo())
 
         println("  [OK] Go service           ->  $serviceDir")
     }
@@ -43,51 +43,47 @@ class GoServiceGenerator : ServiceGenerator {
         func main() {
         	mux := http.NewServeMux()
 
-        	helloHandler := handler.NewHelloHandler()
-        	mux.HandleFunc("/api/hello", helloHandler.Hello)
+        	healthHandler := handler.NewHealthHandler()
+        	mux.HandleFunc("/health", healthHandler.Health)
 
         	log.Println("Server starting on :8080")
         	log.Fatal(http.ListenAndServe(":8080", mux))
         }
     """.trimIndent()
 
-    private fun helloHandlerGo(projectName: String) = """
+    private fun healthHandlerGo() = """
         package handler
 
         import (
         	"encoding/json"
         	"net/http"
-
-        	"$projectName/service"
         )
 
-        type HelloHandler struct {
-        	helloService *service.HelloService
+        type HealthHandler struct{}
+
+        func NewHealthHandler() *HealthHandler {
+        	return &HealthHandler{}
         }
 
-        func NewHelloHandler() *HelloHandler {
-        	return &HelloHandler{helloService: service.NewHelloService()}
-        }
-
-        func (h *HelloHandler) Hello(w http.ResponseWriter, r *http.Request) {
+        func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
         	w.Header().Set("Content-Type", "application/json")
-        	if err := json.NewEncoder(w).Encode(map[string]string{"message": h.helloService.GetGreeting()}); err != nil {
+        	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
         		http.Error(w, "encoding response", http.StatusInternalServerError)
         	}
         }
     """.trimIndent()
 
-    private fun helloServiceGo() = """
+    private fun healthServiceGo() = """
         package service
 
-        type HelloService struct{}
+        type HealthService struct{}
 
-        func NewHelloService() *HelloService {
-        	return &HelloService{}
+        func NewHealthService() *HealthService {
+        	return &HealthService{}
         }
 
-        func (s *HelloService) GetGreeting() string {
-        	return "Hello, World!"
+        func (s *HealthService) Status() string {
+        	return "ok"
         }
     """.trimIndent()
 }

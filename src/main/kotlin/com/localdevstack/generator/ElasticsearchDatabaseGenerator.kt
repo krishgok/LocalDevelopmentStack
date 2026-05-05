@@ -3,34 +3,33 @@ package com.localdevstack.generator
 import java.nio.file.Files
 import java.nio.file.Path
 
-class MongoDbDatabaseGenerator : DatabaseGenerator {
+class ElasticsearchDatabaseGenerator : DatabaseGenerator {
 
     override fun generate(outputDir: Path, serviceConfig: ServiceComposeConfig?) {
         Files.createDirectories(outputDir)
         Files.writeString(outputDir.resolve("docker-compose.yml"), dockerComposeYml(serviceConfig))
-        println("  [OK] MongoDB database     ->  ${outputDir.resolve("docker-compose.yml")}")
+        println("  [OK] Elasticsearch        ->  ${outputDir.resolve("docker-compose.yml")}")
     }
 
     private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
         appendLine("version: '3.8'")
         appendLine()
-        appendLine("# MongoDB runs without authentication by default in this local setup.")
-        appendLine("# Add MONGO_INITDB_ROOT_USERNAME / MONGO_INITDB_ROOT_PASSWORD for any shared environment.")
-        appendLine()
         appendLine("services:")
         appendLine("  db:")
-        appendLine("    image: mongo:7")
-        appendLine("    container_name: local-mongodb")
+        appendLine("    image: elasticsearch:8.12.2")
+        appendLine("    container_name: local-elasticsearch")
         appendLine("    environment:")
-        appendLine("      MONGO_INITDB_DATABASE: app_db")
+        appendLine("      - discovery.type=single-node")
+        appendLine("      - xpack.security.enabled=false")
+        appendLine("      - \"ES_JAVA_OPTS=-Xms512m -Xmx512m\"")
         appendLine("    ports:")
-        appendLine("      - \"27017:27017\"")
+        appendLine("      - \"9200:9200\"")
         appendLine("    volumes:")
-        appendLine("      - mongodb_data:/data/db")
+        appendLine("      - elasticsearch_data:/usr/share/elasticsearch/data")
         appendLine("    healthcheck:")
-        appendLine("      test: [\"CMD\", \"mongosh\", \"--eval\", \"db.adminCommand('ping')\"]")
-        appendLine("      interval: 10s")
-        appendLine("      timeout: 5s")
+        appendLine("      test: [\"CMD-SHELL\", \"curl -f http://localhost:9200/_cluster/health || exit 1\"]")
+        appendLine("      interval: 15s")
+        appendLine("      timeout: 10s")
         appendLine("      retries: 5")
         if (serviceConfig != null) {
             appendLine()
@@ -38,6 +37,6 @@ class MongoDbDatabaseGenerator : DatabaseGenerator {
         }
         appendLine()
         appendLine("volumes:")
-        append("  mongodb_data:")
+        append("  elasticsearch_data:")
     }
 }

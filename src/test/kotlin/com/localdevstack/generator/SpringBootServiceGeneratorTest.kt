@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertContains
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SpringBootServiceGeneratorTest {
@@ -13,6 +14,8 @@ class SpringBootServiceGeneratorTest {
 
     private val generator = SpringBootServiceGenerator()
 
+    // ── Happy path — file presence ────────────────────────────────────────────
+
     @Test
     fun `generates all expected files`() {
         generator.generate(tempDir, "my-service")
@@ -20,9 +23,19 @@ class SpringBootServiceGeneratorTest {
         assertTrue(serviceDir.resolve("build.gradle.kts").toFile().exists())
         assertTrue(serviceDir.resolve("settings.gradle.kts").toFile().exists())
         assertTrue(serviceDir.resolve("src/main/kotlin/com/example/Application.kt").toFile().exists())
-        assertTrue(serviceDir.resolve("src/main/kotlin/com/example/controller/HelloController.kt").toFile().exists())
-        assertTrue(serviceDir.resolve("src/main/kotlin/com/example/service/HelloService.kt").toFile().exists())
+        assertTrue(serviceDir.resolve("src/main/kotlin/com/example/controller/HealthController.kt").toFile().exists())
+        assertTrue(serviceDir.resolve("src/main/kotlin/com/example/service/HealthService.kt").toFile().exists())
         assertTrue(serviceDir.resolve("src/main/resources/application.properties").toFile().exists())
+    }
+
+    @Test
+    fun `does not generate legacy hello files`() {
+        generator.generate(tempDir, "my-service")
+        val serviceDir = tempDir.resolve("service")
+        assertFalse(serviceDir.resolve("src/main/kotlin/com/example/controller/HelloController.kt").toFile().exists(),
+            "HelloController.kt should not exist — replaced by HealthController.kt")
+        assertFalse(serviceDir.resolve("src/main/kotlin/com/example/service/HelloService.kt").toFile().exists(),
+            "HelloService.kt should not exist — replaced by HealthService.kt")
     }
 
     @Test
@@ -33,7 +46,7 @@ class SpringBootServiceGeneratorTest {
     }
 
     @Test
-    fun `build gradle contains spring boot dependency`() {
+    fun `build gradle contains spring boot web dependency`() {
         generator.generate(tempDir, "svc")
         val content = tempDir.resolve("service/build.gradle.kts").toFile().readText()
         assertContains(content, "spring-boot-starter-web")
@@ -59,10 +72,50 @@ class SpringBootServiceGeneratorTest {
         assertContains(content, "@SpringBootApplication")
     }
 
+    // ── Happy path — health endpoint ─────────────────────────────────────────
+
     @Test
-    fun `HelloService returns greeting`() {
+    fun `HealthController maps GET slash health`() {
         generator.generate(tempDir, "svc")
-        val content = tempDir.resolve("service/src/main/kotlin/com/example/service/HelloService.kt").toFile().readText()
-        assertContains(content, "Hello, World!")
+        val content = tempDir.resolve("service/src/main/kotlin/com/example/controller/HealthController.kt").toFile().readText()
+        assertContains(content, "/health")
+        assertContains(content, "@GetMapping")
+    }
+
+    @Test
+    fun `HealthController returns status key not message key`() {
+        generator.generate(tempDir, "svc")
+        val content = tempDir.resolve("service/src/main/kotlin/com/example/controller/HealthController.kt").toFile().readText()
+        assertContains(content, "status")
+        assertFalse(content.contains("message"), "Controller should not use 'message' key")
+    }
+
+    @Test
+    fun `HealthService returns ok`() {
+        generator.generate(tempDir, "svc")
+        val content = tempDir.resolve("service/src/main/kotlin/com/example/service/HealthService.kt").toFile().readText()
+        assertContains(content, "\"ok\"")
+    }
+
+    @Test
+    fun `HealthController does not expose api hello route`() {
+        generator.generate(tempDir, "svc")
+        val content = tempDir.resolve("service/src/main/kotlin/com/example/controller/HealthController.kt").toFile().readText()
+        assertFalse(content.contains("/api/hello"), "Must not expose /api/hello")
+    }
+
+    // ── Unhappy path ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `different project names produce distinct settings files`() {
+        val tempDir2 = createTempDir("lds-test2")
+        try {
+            generator.generate(tempDir, "service-alpha")
+            generator.generate(tempDir2.toPath(), "service-beta")
+            assertContains(tempDir.resolve("service/settings.gradle.kts").toFile().readText(), "service-alpha")
+            assertContains(tempDir2.toPath().resolve("service/settings.gradle.kts").toFile().readText(), "service-beta")
+        } finally {
+            tempDir2.deleteRecursively()
+        }
     }
 }

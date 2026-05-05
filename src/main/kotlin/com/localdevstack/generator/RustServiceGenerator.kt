@@ -20,9 +20,9 @@ class RustServiceGenerator : ServiceGenerator {
         Files.writeString(serviceDir.resolve("Cargo.toml"), cargoToml(projectName))
         Files.writeString(srcDir.resolve("main.rs"), mainRs())
         Files.writeString(routesDir.resolve("mod.rs"), routesModRs())
-        Files.writeString(routesDir.resolve("hello.rs"), helloRouteRs())
+        Files.writeString(routesDir.resolve("health.rs"), healthRouteRs())
         Files.writeString(servicesDir.resolve("mod.rs"), servicesModRs())
-        Files.writeString(servicesDir.resolve("hello.rs"), helloServiceRs())
+        Files.writeString(servicesDir.resolve("health.rs"), healthServiceRs())
 
         println("  [OK] Rust service         ->  $serviceDir")
     }
@@ -45,12 +45,12 @@ class RustServiceGenerator : ServiceGenerator {
         mod services;
 
         use axum::{Router, routing::get};
-        use routes::hello::hello_handler;
+        use routes::health::health_handler;
 
         #[tokio::main]
         async fn main() {
             let app = Router::new()
-                .route("/api/hello", get(hello_handler));
+                .route("/health", get(health_handler));
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
             println!("Server running on :8080");
@@ -59,34 +59,32 @@ class RustServiceGenerator : ServiceGenerator {
     """.trimIndent()
 
     private fun routesModRs() = """
-        pub mod hello;
+        pub mod health;
     """.trimIndent()
 
-    private fun helloRouteRs() = """
+    private fun healthRouteRs() = """
         use axum::Json;
         use serde_json::{json, Value};
-        use crate::services::hello::HelloService;
 
-        pub async fn hello_handler() -> Json<Value> {
-            let service = HelloService::new();
-            Json(json!({ "message": service.get_greeting() }))
+        pub async fn health_handler() -> Json<Value> {
+            Json(json!({ "status": "ok" }))
         }
     """.trimIndent()
 
     private fun servicesModRs() = """
-        pub mod hello;
+        pub mod health;
     """.trimIndent()
 
-    private fun helloServiceRs() = """
-        pub struct HelloService;
+    private fun healthServiceRs() = """
+        pub struct HealthService;
 
-        impl HelloService {
+        impl HealthService {
             pub fn new() -> Self {
-                HelloService
+                HealthService
             }
 
-            pub fn get_greeting(&self) -> &str {
-                "Hello, World!"
+            pub fn status(&self) -> &str {
+                "ok"
             }
         }
     """.trimIndent()

@@ -1,11 +1,13 @@
 plugins {
     kotlin("jvm") version "1.9.22"
+    kotlin("kapt") version "1.9.22"
     application
     id("com.github.johnrengelman.shadow") version "8.1.1"
+    id("org.graalvm.buildtools.native") version "0.10.1"
 }
 
 group = "com.localdevstack"
-version = "1.0.0"
+version = "1.1.0"
 
 repositories {
     mavenCentral()
@@ -14,6 +16,7 @@ repositories {
 dependencies {
     implementation(kotlin("stdlib"))
     implementation("info.picocli:picocli:4.7.5")
+    kapt("info.picocli:picocli-codegen:4.7.5")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
@@ -34,4 +37,19 @@ kotlin {
 tasks.shadowJar {
     archiveClassifier.set("")
     mergeServiceFiles()
+}
+
+graalvmNative {
+    binaries {
+        named("main") {
+            imageName.set("localdevstack")
+            mainClass.set("com.localdevstack.MainKt")
+            buildArgs.addAll(
+                "--no-fallback",
+                "-H:+ReportExceptionStackTraces",
+                "--initialize-at-build-time=kotlin",
+                "--initialize-at-build-time=picocli"
+            )
+        }
+    }
 }
