@@ -9,13 +9,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Validates invariants that every Dockerfile generator must uphold:
- *   - always writes Dockerfile.dev (never Dockerfile)
- *   - never overwrites an existing Dockerfile
- *   - exposes port 8080
- *   - uses a sensible base image
- */
 class AllDockerfileGeneratorsTest {
 
     @TempDir
@@ -34,7 +27,23 @@ class AllDockerfileGeneratorsTest {
             arrayOf("php",        PhpDockerfileGenerator()),
             arrayOf("ruby",       RubyDockerfileGenerator()),
         )
+
+        // name, generator, hot-reload indicator, dependency manifest snippet
+        @JvmStatic
+        fun generatorsWithHotReload() = listOf(
+            arrayOf("springboot", SpringBootDockerfileGenerator(), "bootRun",        "build.gradle"),
+            arrayOf("go",         GoDockerfileGenerator(),         "air",            "go.mod"),
+            arrayOf("python",     PythonDockerfileGenerator(),     "--reload",       "requirements"),
+            arrayOf("node",       NodeDockerfileGenerator(),       "nodemon",        "package"),
+            arrayOf("rust",       RustDockerfileGenerator(),       "cargo",          "Cargo.toml"),
+            arrayOf("dotnet",     DotNetDockerfileGenerator(),     "watch",          ".csproj"),
+            arrayOf("java",       JavaDockerfileGenerator(),       "spring-boot:run","pom.xml"),
+            arrayOf("php",        PhpDockerfileGenerator(),        "php",            "composer"),
+            arrayOf("ruby",       RubyDockerfileGenerator(),       "rails",          "Gemfile"),
+        )
     }
+
+    // ── Structural invariants ─────────────────────────────────────────────────
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("generators")
@@ -89,8 +98,6 @@ class AllDockerfileGeneratorsTest {
             "$name: Dockerfile.dev must have CMD or ENTRYPOINT")
     }
 
-    // ── Happy path — content spot-checks ─────────────────────────────────────
-
     @ParameterizedTest(name = "{0}")
     @MethodSource("generators")
     fun `Dockerfile dev is non-empty`(name: String, gen: DockerfileGenerator) {
@@ -109,6 +116,8 @@ class AllDockerfileGeneratorsTest {
         assertTrue(first == second, "$name: repeated generation should produce identical Dockerfile.dev")
     }
 
+    // ── Hot-reload invariants ─────────────────────────────────────────────────
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("generators")
     fun `Dockerfile dev does not copy entire source tree`(name: String, gen: DockerfileGenerator) {
@@ -116,5 +125,27 @@ class AllDockerfileGeneratorsTest {
         val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
         assertFalse(content.contains("COPY . ."),
             "$name: source must be volume-mounted at runtime, not baked into image with COPY . .")
+    }
+
+    @ParameterizedTest(name = "{0} uses correct hot-reload tool")
+    @MethodSource("generatorsWithHotReload")
+    fun `Dockerfile dev references the hot-reload tool`(
+        name: String, gen: DockerfileGenerator, hotReloadTool: String, @Suppress("UNUSED_PARAMETER") ignored: String
+    ) {
+        gen.generate(tempDir, "test-svc")
+        val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
+        assertContains(content, hotReloadTool,
+            "$name: Dockerfile.dev must reference hot-reload tool '$hotReloadTool'")
+    }
+
+    @ParameterizedTest(name = "{0} copies dependency manifest")
+    @MethodSource("generatorsWithHotReload")
+    fun `Dockerfile dev copies dependency manifest for layer caching`(
+        name: String, gen: DockerfileGenerator, @Suppress("UNUSED_PARAMETER") ignored: String, depManifest: String
+    ) {
+        gen.generate(tempDir, "test-svc")
+        val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
+        assertContains(content, depManifest,
+            "$name: Dockerfile.dev must COPY the dependency manifest ('$depManifest') for layer caching, even though source is volume-mounted")
     }
 }
