@@ -4,7 +4,8 @@ data class ServiceComposeConfig(
     val name: String,
     val dockerfilePath: String = "Dockerfile.dev",
     val port: Int = 8080,
-    val envVars: Map<String, String>
+    val envVars: Map<String, String>,
+    val volumes: List<String> = emptyList()
 )
 
 fun StringBuilder.appendServiceBlock(config: ServiceComposeConfig) {
@@ -19,6 +20,12 @@ fun StringBuilder.appendServiceBlock(config: ServiceComposeConfig) {
         appendLine("    environment:")
         config.envVars.forEach { (key, value) ->
             appendLine("      - $key=$value")
+        }
+    }
+    if (config.volumes.isNotEmpty()) {
+        appendLine("    volumes:")
+        config.volumes.forEach { vol ->
+            appendLine("      - $vol")
         }
     }
     appendLine("    depends_on:")

@@ -13,29 +13,20 @@ class JavaDockerfileGenerator : DockerfileGenerator {
 
     private fun dockerfilePath(serviceDir: Path): Path {
         val existing = serviceDir.resolve("Dockerfile")
-        return if (Files.exists(existing)) {
+        if (Files.exists(existing)) {
             println("  Note: Dockerfile already exists. Generating Dockerfile.dev for local development.")
             println("        Review Dockerfile.dev before promoting it to production.")
-            serviceDir.resolve("Dockerfile.dev")
-        } else {
-            serviceDir.resolve("Dockerfile.dev")
         }
+        return serviceDir.resolve("Dockerfile.dev")
     }
 
     private fun dockerfile() = """
-        # ── Build stage ─────────────────────────────────────────────────────────────
-        FROM eclipse-temurin:21-jdk-alpine AS builder
+        FROM eclipse-temurin:21-jdk-alpine
+        RUN apk add --no-cache maven
         WORKDIR /app
         COPY pom.xml ./
-        RUN mvn dependency:go-offline -B 2>/dev/null || true
-        COPY src ./src
-        RUN mvn package -DskipTests --no-transfer-progress
-
-        # ── Runtime stage ────────────────────────────────────────────────────────────
-        FROM eclipse-temurin:21-jre-alpine
-        WORKDIR /app
-        COPY --from=builder /app/target/*.jar app.jar
+        RUN mvn dependency:go-offline -q 2>/dev/null || true
         EXPOSE 8080
-        ENTRYPOINT ["java", "-jar", "app.jar"]
+        CMD ["mvn", "spring-boot:run", "-q"]
     """.trimIndent()
 }

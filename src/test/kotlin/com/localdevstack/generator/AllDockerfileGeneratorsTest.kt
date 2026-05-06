@@ -108,4 +108,13 @@ class AllDockerfileGeneratorsTest {
         val second = tempDir.resolve("Dockerfile.dev").toFile().readText()
         assertTrue(first == second, "$name: repeated generation should produce identical Dockerfile.dev")
     }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("generators")
+    fun `Dockerfile dev does not copy entire source tree`(name: String, gen: DockerfileGenerator) {
+        gen.generate(tempDir, "test-svc")
+        val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
+        assertFalse(content.contains("COPY . ."),
+            "$name: source must be volume-mounted at runtime, not baked into image with COPY . .")
+    }
 }

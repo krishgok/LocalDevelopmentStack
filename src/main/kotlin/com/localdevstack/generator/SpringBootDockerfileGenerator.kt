@@ -13,30 +13,20 @@ class SpringBootDockerfileGenerator : DockerfileGenerator {
 
     private fun dockerfilePath(serviceDir: Path): Path {
         val existing = serviceDir.resolve("Dockerfile")
-        return if (Files.exists(existing)) {
+        if (Files.exists(existing)) {
             println("  Note: Dockerfile already exists. Generating Dockerfile.dev for local development.")
             println("        Review Dockerfile.dev before promoting it to production.")
-            serviceDir.resolve("Dockerfile.dev")
-        } else {
-            serviceDir.resolve("Dockerfile.dev")
         }
+        return serviceDir.resolve("Dockerfile.dev")
     }
 
     private fun dockerfile() = """
-        # ── Build stage ─────────────────────────────────────────────────────────────
-        FROM eclipse-temurin:17-jdk-alpine AS builder
+        FROM eclipse-temurin:17-jdk-alpine
         WORKDIR /app
-        COPY gradlew build.gradle.kts settings.gradle.kts ./
+        COPY build.gradle.kts settings.gradle.kts gradlew ./
         COPY gradle ./gradle
-        RUN ./gradlew dependencies --no-daemon
-        COPY src ./src
-        RUN ./gradlew bootJar --no-daemon
-
-        # ── Runtime stage ────────────────────────────────────────────────────────────
-        FROM eclipse-temurin:17-jre-alpine
-        WORKDIR /app
-        COPY --from=builder /app/build/libs/*.jar app.jar
+        RUN chmod +x gradlew && ./gradlew dependencies --no-daemon -q 2>/dev/null || true
         EXPOSE 8080
-        ENTRYPOINT ["java", "-jar", "app.jar"]
+        CMD ["./gradlew", "bootRun", "--no-daemon"]
     """.trimIndent()
 }

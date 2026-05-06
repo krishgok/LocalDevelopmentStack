@@ -107,6 +107,24 @@ class PostgresDatabaseGeneratorTest {
         assertContains(compose(), "service_healthy")
     }
 
+    @Test
+    fun `docker-compose service block includes volumes when provided`() {
+        generator.generate(tempDir, serviceConfig(volumes = listOf(".:/app", "/app/node_modules")))
+        assertContains(compose(), "volumes:")
+        assertContains(compose(), ".:/app")
+        assertContains(compose(), "/app/node_modules")
+    }
+
+    @Test
+    fun `docker-compose service block has no volumes section when volumes list is empty`() {
+        generator.generate(tempDir, serviceConfig())
+        val composeText = compose()
+        // The default serviceConfig() passes no volumes — ensure no spurious volumes block
+        val serviceSection = composeText.substringAfter("  my-api:")
+        assertFalse(serviceSection.contains("    volumes:"),
+            "No volumes block should appear when serviceConfig.volumes is empty")
+    }
+
     // ── Unhappy path ──────────────────────────────────────────────────────────
 
     @Test
@@ -122,9 +140,10 @@ class PostgresDatabaseGeneratorTest {
 
     private fun compose() = tempDir.resolve("docker-compose.yml").toFile().readText()
 
-    private fun serviceConfig(port: Int = 8080) = ServiceComposeConfig(
+    private fun serviceConfig(port: Int = 8080, volumes: List<String> = emptyList()) = ServiceComposeConfig(
         name = "my-api",
         port = port,
-        envVars = mapOf("DATABASE_URL" to "postgresql://postgres:postgres_dev_only@db:5432/app_db")
+        envVars = mapOf("DATABASE_URL" to "postgresql://postgres:postgres_dev_only@db:5432/app_db"),
+        volumes = volumes
     )
 }

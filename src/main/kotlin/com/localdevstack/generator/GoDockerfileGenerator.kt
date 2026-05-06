@@ -13,30 +13,20 @@ class GoDockerfileGenerator : DockerfileGenerator {
 
     private fun dockerfilePath(serviceDir: Path): Path {
         val existing = serviceDir.resolve("Dockerfile")
-        return if (Files.exists(existing)) {
+        if (Files.exists(existing)) {
             println("  Note: Dockerfile already exists. Generating Dockerfile.dev for local development.")
             println("        Review Dockerfile.dev before promoting it to production.")
-            serviceDir.resolve("Dockerfile.dev")
-        } else {
-            serviceDir.resolve("Dockerfile.dev")
         }
+        return serviceDir.resolve("Dockerfile.dev")
     }
 
     private fun dockerfile() = """
-        # ── Build stage ─────────────────────────────────────────────────────────────
-        FROM golang:1.22-alpine AS builder
+        FROM golang:1.22-alpine
+        RUN go install github.com/air-verse/air@latest
         WORKDIR /app
         COPY go.mod go.sum* ./
         RUN go mod download
-        COPY . .
-        RUN go build -o service ./...
-
-        # ── Runtime stage ────────────────────────────────────────────────────────────
-        FROM alpine:3.19
-        RUN apk --no-cache add ca-certificates
-        WORKDIR /app
-        COPY --from=builder /app/service .
         EXPOSE 8080
-        CMD ["./service"]
+        CMD ["air", "--build.cmd", "go build -o /tmp/main ./...", "--build.bin", "/tmp/main"]
     """.trimIndent()
 }

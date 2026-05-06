@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`LocalDevelopmentStack` is a Kotlin CLI tool that scaffolds a local development environment. Given a service type and a database type as inputs, it generates a ready-to-run project containing the service source code and database configuration.
+`LocalDevelopmentStack` is a Kotlin CLI tool that scaffolds a local development environment. It has two modes:
+
+1. **New service scaffold** — given a service type and database, generates a complete runnable service + `docker-compose.yml` from scratch.
+2. **Existing service scaffold** (`--existing-dir`) — auto-detects the language in an existing directory, then generates `Dockerfile.dev` + `docker-compose.yml` so the full local stack (service + database) runs with `docker-compose up --build`. Hot-reload is enabled; source changes are picked up automatically without a rebuild.
 
 ## Requirements
 
@@ -16,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Gradle     | 8+      | Build the fat JAR, run the CLI         |
 | Docker     | 24+     | Run the generated `docker-compose.yml` |
 
-### Additional requirements per generated service type
+### Additional requirements per generated service type (new service scaffold mode)
 
 | `--service`  | Dependency               | Version |
 | ------------ | ------------------------ | ------- |
@@ -25,51 +28,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `python`     | Python, pip              | 3.10+   |
 | `node`       | Node.js, npm             | 18+     |
 | `rust`       | Rust (via rustup), Cargo | 1.75+   |
+| `dotnet`     | .NET SDK                 | 8+      |
+| `java`       | JDK, Maven               | 21+     |
+| `php`        | PHP, Composer            | 8.2+    |
+| `ruby`       | Ruby, Bundler            | 3.2+    |
+
+> In existing-service mode these are not required on the host — the service runs inside Docker.
 
 ### Installing on Windows
 
-**JDK 17+**
-
 ```powershell
 winget install EclipseAdoptium.Temurin.17.JDK
-```
-
-Or download from [Adoptium](https://adoptium.net).
-
-**Gradle 8+**
-
-```powershell
 winget install Gradle.Gradle
-```
-
-**Docker**
-Download [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install) (requires WSL 2).
-
-**Go**
-
-```powershell
 winget install GoLang.Go
-```
-
-**Python**
-
-```powershell
 winget install Python.Python.3.12
-```
-
-**Node.js**
-
-```powershell
 winget install OpenJS.NodeJS.LTS
+winget install Rustlang.Rustup   # then: rustup default stable
 ```
 
-**Rust**
-
-```powershell
-winget install Rustlang.Rustup
-```
-
-Then run `rustup default stable`.
+Docker: [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install) (requires WSL 2).
 
 ### Installing on macOS
 
@@ -78,31 +55,16 @@ brew install temurin@17 gradle go python@3.12 node
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Docker: download [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install).
+Docker: [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install).
 
 ### Installing on Linux (apt)
 
 ```bash
-# JDK
 sudo apt install -y temurin-17-jdk   # requires adoptium PPA
-
-# Gradle (via sdkman is recommended)
 curl -s "https://get.sdkman.io" | bash && sdk install gradle
-
-# Docker
 sudo apt install -y docker.io docker-compose-plugin
-
-# Go
-sudo apt install -y golang-go
-
-# Python
-sudo apt install -y python3 python3-pip
-
-# Node.js (via NodeSource)
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Rust
+sudo apt install -y golang-go python3 python3-pip
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt install -y nodejs
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
@@ -114,7 +76,7 @@ Build a runnable fat JAR:
 gradle shadowJar
 ```
 
-Run directly via Gradle (with defaults):
+Run directly via Gradle (new service scaffold, defaults):
 
 ```
 gradle run
@@ -123,7 +85,13 @@ gradle run
 Run with explicit options:
 
 ```
-gradle run --args="--service springboot --database postgres --output ./my-stack --name my-service"
+gradle run --args="--service go --database postgres --output ./my-stack --name my-api"
+```
+
+Wrap an existing service directory:
+
+```
+gradle run --args="--existing-dir ./my-existing-service --database postgres"
 ```
 
 Run the built JAR:
@@ -134,46 +102,102 @@ java -jar build/libs/LocalDevelopmentStack-1.0.0.jar --help
 
 ## Architecture
 
-The tool is structured around two generator interfaces:
+The tool is structured around three generator interfaces:
 
-- **`ServiceGenerator`** — generates the service project files
-- **`DatabaseGenerator`** — generates the database configuration
+- **`ServiceGenerator`** — generates a complete new service project (new scaffold mode only)
+- **`DatabaseGenerator`** — generates `docker-compose.yml` with the chosen database; optionally includes a service container block when a `ServiceComposeConfig` is provided
+- **`DockerfileGenerator`** — generates `Dockerfile.dev` for an existing service (existing-dir mode only); always single-stage with hot-reload tooling, never copies source (source is volume-mounted)
 
-`LocalDevStackCli` (picocli `@Command`) wires them together based on `--service` and `--database` flags and dispatches to the correct implementation via a `when` block. `Main.kt` is the entry point.
+`LocalDevStackCli` (picocli `@Command`) dispatches to the correct implementation via `when` blocks. `Main.kt` is the entry point.
 
-### Current implementations
+### Service generators (9 types)
 
-| Flag value               | Implementation                 | What it generates                                                           |
-| ------------------------ | ------------------------------ | --------------------------------------------------------------------------- |
-| `--service springboot`   | `SpringBootServiceGenerator`   | Kotlin + Spring Boot, REST controller + service layer, Gradle               |
-| `--service go`           | `GoServiceGenerator`           | Go + `net/http`, handler + service layer                                    |
-| `--service python`       | `PythonServiceGenerator`       | Python + FastAPI, router + service layer                                    |
-| `--service node`         | `NodeServiceGenerator`         | Node.js + Express, routes + service layer                                   |
-| `--service rust`         | `RustServiceGenerator`         | Rust + Axum, routes + service layer, Cargo                                  |
-| `--database postgres`    | `PostgresDatabaseGenerator`    | `docker-compose.yml` with Postgres 16 (port 5432)                           |
-| `--database mysql`       | `MySqlDatabaseGenerator`       | `docker-compose.yml` with MySQL 8 (port 3306)                               |
-| `--database mongodb`     | `MongoDbDatabaseGenerator`     | `docker-compose.yml` with MongoDB 7 (port 27017)                            |
-| `--database cockroachdb` | `CockroachDbDatabaseGenerator` | `docker-compose.yml` with CockroachDB v23.2 (SQL port 26257, Admin UI 8090) |
+| `--service`  | Implementation               | Framework / Stack              |
+| ------------ | ---------------------------- | ------------------------------ |
+| `springboot` | `SpringBootServiceGenerator` | Kotlin + Spring Boot, Gradle   |
+| `go`         | `GoServiceGenerator`         | Go + `net/http`                |
+| `python`     | `PythonServiceGenerator`     | Python + FastAPI               |
+| `node`       | `NodeServiceGenerator`       | Node.js + Express              |
+| `rust`       | `RustServiceGenerator`       | Rust + Axum, Cargo             |
+| `dotnet`     | `DotNetServiceGenerator`     | C# + ASP.NET Core 8            |
+| `java`       | `JavaServiceGenerator`       | Java 21 + Spring Boot, Maven   |
+| `php`        | `PhpServiceGenerator`        | PHP 8.2 + Laravel 11           |
+| `ruby`       | `RubyServiceGenerator`       | Ruby 3.2 + Rails 7             |
+
+All generated services expose `GET /health` → `{"status":"ok"}`.
+
+### Database generators (8 types)
+
+| `--database`    | Implementation                  | Image                                          | Port  | Injected env var     |
+| --------------- | ------------------------------- | ---------------------------------------------- | ----- | -------------------- |
+| `postgres`      | `PostgresDatabaseGenerator`     | `postgres:16`                                  | 5432  | `DATABASE_URL`       |
+| `mysql`         | `MySqlDatabaseGenerator`        | `mysql:8`                                      | 3306  | `DATABASE_URL`       |
+| `mongodb`       | `MongoDbDatabaseGenerator`      | `mongo:7`                                      | 27017 | `MONGODB_URI`        |
+| `cockroachdb`   | `CockroachDbDatabaseGenerator`  | `cockroachdb/cockroach:v23.2.0`                | 26257 | `DATABASE_URL`       |
+| `redis`         | `RedisDatabaseGenerator`        | `redis:7-alpine`                               | 6379  | `REDIS_URL`          |
+| `mariadb`       | `MariaDbDatabaseGenerator`      | `mariadb:11`                                   | 3306  | `DATABASE_URL`       |
+| `sqlserver`     | `SqlServerDatabaseGenerator`    | `mcr.microsoft.com/mssql/server:2022-latest`   | 1433  | `DATABASE_URL`       |
+| `elasticsearch` | `ElasticsearchDatabaseGenerator`| `elasticsearch:8.12`                           | 9200  | `ELASTICSEARCH_URL`  |
+
+All database services are named `db:` in the compose file so connection URLs use `@db:PORT` consistently.
+
+### Dockerfile generators (9 types, existing-dir mode only)
+
+| `--service`  | Implementation                   | Hot-reload tool                    |
+| ------------ | -------------------------------- | ---------------------------------- |
+| `springboot` | `SpringBootDockerfileGenerator`  | `./gradlew bootRun`                |
+| `go`         | `GoDockerfileGenerator`          | `air` (cosmtrek/air)               |
+| `python`     | `PythonDockerfileGenerator`      | `uvicorn --reload`                 |
+| `node`       | `NodeDockerfileGenerator`        | `nodemon`                          |
+| `rust`       | `RustDockerfileGenerator`        | `cargo-watch`                      |
+| `dotnet`     | `DotNetDockerfileGenerator`      | `dotnet watch run`                 |
+| `java`       | `JavaDockerfileGenerator`        | `mvn spring-boot:run`              |
+| `php`        | `PhpDockerfileGenerator`         | PHP built-in server (serves files on request) |
+| `ruby`       | `RubyDockerfileGenerator`        | Rails dev server (auto-reloads)    |
+
+`Dockerfile.dev` is always single-stage. Source code is **never** copied (`COPY . .` is absent); it is volume-mounted at runtime via the compose `volumes:` block.
+
+### Language detection (`ExistingServiceDetector`)
+
+Detects service type from root-level sentinel files:
+
+| Sentinel file(s)                  | Detected type |
+| --------------------------------- | ------------- |
+| `go.mod`                          | `go`          |
+| `Cargo.toml`                      | `rust`        |
+| `build.gradle.kts` / `build.gradle` | `springboot` |
+| `pom.xml`                         | `java`        |
+| `Program.cs` / `*.csproj`         | `dotnet`      |
+| `Gemfile`                         | `ruby`        |
+| `composer.json`                   | `php`         |
+| `package.json`                    | `node`        |
+| `requirements.txt` / `pyproject.toml` | `python`  |
+
+Multiple distinct types → `DetectionException` with explicit `--service` override examples.
 
 ### Generated output structure
 
+**New service scaffold:**
 ```
 <output>/
 ├── service/
-│   ├── build.gradle.kts
-│   ├── settings.gradle.kts
-│   └── src/main/kotlin/com/example/
-│       ├── Application.kt
-│       ├── controller/HelloController.kt   # GET /api/hello
-│       └── service/HelloService.kt
-│   └── src/main/resources/
-│       └── application.properties          # connects to localhost:5432/app_db
-└── docker-compose.yml                      # postgres:16, port 5432
+│   └── <language-specific source files>
+│       └── GET /health → {"status":"ok"}
+└── docker-compose.yml    # database only; service runs directly on host
+```
+
+**Existing service scaffold:**
+```
+<existing-dir>/
+├── <your source files — untouched>
+├── Dockerfile.dev        # single-stage, hot-reload, no COPY . .
+└── docker-compose.yml    # database + your service container (volume-mounted source)
 ```
 
 ### Adding a new service or database type
 
-1. Implement `ServiceGenerator` (include `override val runCommand`) or `DatabaseGenerator`
-2. Add a `when` branch in `LocalDevStackCli.run()`
-
-The generated Spring Boot `application.properties` always points to `localhost:5432/app_db` with credentials `postgres/postgres`, matching the Docker Compose defaults.
+1. Implement `ServiceGenerator` (include `override val runCommand`) **or** `DatabaseGenerator`
+2. If it's a service type, also implement `DockerfileGenerator` for existing-dir mode
+3. Add a `when` branch in `LocalDevStackCli` (`resolveServiceGenerator`, `resolveDockerfileGenerator`, or `resolveDatabaseGenerator`)
+4. Add the volumes list in `serviceVolumes()` for the new service type
+5. Add the env var mapping in `dbEnvVars()` for a new database type

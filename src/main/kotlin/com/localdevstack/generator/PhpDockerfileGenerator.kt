@@ -13,23 +13,21 @@ class PhpDockerfileGenerator : DockerfileGenerator {
 
     private fun dockerfilePath(serviceDir: Path): Path {
         val existing = serviceDir.resolve("Dockerfile")
-        return if (Files.exists(existing)) {
+        if (Files.exists(existing)) {
             println("  Note: Dockerfile already exists. Generating Dockerfile.dev for local development.")
             println("        Review Dockerfile.dev before promoting it to production.")
-            serviceDir.resolve("Dockerfile.dev")
-        } else {
-            serviceDir.resolve("Dockerfile.dev")
         }
+        return serviceDir.resolve("Dockerfile.dev")
     }
 
     private fun dockerfile() = """
-        FROM php:8.2-fpm-alpine
+        FROM php:8.2-cli-alpine
+        RUN docker-php-ext-install pdo pdo_mysql pdo_pgsql \
+            && curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
         WORKDIR /app
-        RUN apk --no-cache add composer
         COPY composer.json composer.lock* ./
-        RUN composer install --no-dev --optimize-autoloader
-        COPY . .
+        RUN composer install --no-interaction --no-scripts --prefer-dist
         EXPOSE 8080
-        CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8080"]
+        CMD ["php", "-S", "0.0.0.0:8080", "-t", "public"]
     """.trimIndent()
 }

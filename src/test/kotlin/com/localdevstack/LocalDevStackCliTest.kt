@@ -148,6 +148,22 @@ class LocalDevStackCliTest {
     }
 
     @Test
+    fun `existing-dir mode compose includes source volume mount`() {
+        Files.writeString(tempDir.resolve("go.mod"), "module test")
+        cli { existingDir = tempDir.toString(); databaseType = "postgres" }.run()
+        assertContains(tempDir.resolve("docker-compose.yml").toFile().readText(), ".:/app")
+    }
+
+    @Test
+    fun `existing-dir node service compose includes node_modules exclusion volume`() {
+        Files.writeString(tempDir.resolve("package.json"), "{}")
+        cli { existingDir = tempDir.toString(); databaseType = "postgres" }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertContains(compose, ".:/app")
+        assertContains(compose, "/app/node_modules")
+    }
+
+    @Test
     fun `existing-dir mode explicit service type overrides auto-detection`() {
         // Directory has go.mod but we override to node
         Files.writeString(tempDir.resolve("go.mod"), "module test")

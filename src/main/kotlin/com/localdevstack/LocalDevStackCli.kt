@@ -124,7 +124,8 @@ class LocalDevStackCli : Runnable {
             name = resolvedName,
             dockerfilePath = "Dockerfile.dev",
             port = resolvedPort,
-            envVars = envVars
+            envVars = envVars,
+            volumes = serviceVolumes(resolvedServiceType)
         )
 
         println("Wrapping existing service...")
@@ -142,7 +143,12 @@ class LocalDevStackCli : Runnable {
         println("Next steps:")
         println("  1. cd $existingDir")
         println("  2. docker-compose up --build")
-        println("  3. Verify your service using your own endpoints.")
+        println("     ↳ Builds the dev image and starts the database and your service.")
+        println("     ↳ Hot-reload is enabled — source changes are picked up automatically.")
+        println("     ↳ No rebuild needed while the containers are running.")
+        println("  3. Edit your source files; the hot-reload watcher inside the container")
+        println("     recompiles/restarts your service automatically.")
+        println("  4. Verify your service using your own endpoints.")
         println("     (LocalDevelopmentStack does not add or modify any endpoints in your service.)")
         printMultiDbTip(existingDir!!, databaseType)
     }
@@ -269,6 +275,17 @@ class LocalDevStackCli : Runnable {
             System.err.println("Supported: postgres, mysql, mongodb, cockroachdb, redis, mariadb, sqlserver, elasticsearch")
             null
         }
+    }
+
+    private fun serviceVolumes(type: String): List<String> = when (type.lowercase()) {
+        "node"       -> listOf(".:/app", "/app/node_modules")
+        "springboot" -> listOf(".:/app", "/app/build", "/app/.gradle")
+        "java"       -> listOf(".:/app", "/app/target")
+        "dotnet"     -> listOf(".:/app", "/app/bin", "/app/obj")
+        "rust"       -> listOf(".:/app", "/app/target")
+        "php"        -> listOf(".:/app", "/app/vendor")
+        "ruby"       -> listOf(".:/app", "/app/vendor/bundle")
+        else         -> listOf(".:/app")
     }
 
     private fun dbEnvVars(type: String): Map<String, String> = when (type.lowercase()) {
