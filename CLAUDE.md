@@ -123,14 +123,14 @@ gradle test --tests "com.localdevstack.LocalDevStackCliTest.removing migration t
 
 ## Architecture
 
-The tool is structured around four generator interfaces:
+The tool is structured around four generator types:
 
-- **`ServiceGenerator`** — generates a complete new service project (new scaffold mode only)
-- **`DatabaseGenerator`** — generates `docker-compose.yml` with the chosen database; optionally includes a service container block when a `ServiceComposeConfig` is provided
-- **`DockerfileGenerator`** — generates `Dockerfile.dev` for an existing service (existing-dir mode only); always single-stage with hot-reload tooling, never copies source (source is volume-mounted)
-- **`MigrationGenerator`** — generates migration scaffolding (example migration files, configs, optional `Dockerfile.migrate`) and a `migrate:` compose service block. Activated by `--migration <tool>`. Defaults to off.
+- **`ServiceGenerator`** (interface) — generates a complete new service project (new scaffold mode only)
+- **`DatabaseGenerator`** (interface) — generates `docker-compose.yml` with the chosen database; optionally includes a service container block when a `ServiceComposeConfig` is provided. **Output contract:** the file must end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` can find its insertion point. Documented in the `DatabaseGenerator` KDoc.
+- **`DockerfileGenerator`** (**abstract class**, not interface) — generates `Dockerfile.dev` for an existing service (existing-dir mode only). The shared `generate()` and `Dockerfile`-already-exists warning live in the base class; subclasses only override `protected abstract fun dockerfile(): String` and are ~12 lines each. Always single-stage with hot-reload tooling, never copies source (source is volume-mounted).
+- **`MigrationGenerator`** (interface) — generates migration scaffolding (example migration files, configs, optional `Dockerfile.migrate`) and a `migrate:` compose service block. Activated by `--migration <tool>`. Defaults to off.
 
-`LocalDevStackCli` (picocli `@Command`) dispatches to the correct implementation via `when` blocks. `Main.kt` is the entry point.
+`LocalDevStackCli` (picocli `@Command`) dispatches via two **registry maps in its companion object** — `SERVICES: Map<String, ServiceSpec>` and `DATABASES: Map<String, DbSpec>` — not parallel `when` blocks. Each entry bundles all per-type knowledge (factory functions, volumes/env-vars, connection info), so adding a new type is one map entry rather than edits across five resolvers. The companion object also holds `DEFAULT_PROJECT_NAME`, `DEFAULT_DATABASE`, `DEFAULT_SERVICE_TYPE`, `DEFAULT_OUTPUT_DIR`, `PORT_CANDIDATES`, `DOCKER_PROBE_TIMEOUT_SECONDS`, and the `SUPPORTED_MIGRATIONS` compatibility map — refer to these constants rather than hand-writing literals. `Main.kt` is the entry point.
 
 ### Service generators (9 types)
 
@@ -210,6 +210,7 @@ Compatibility validation is centralized in `LocalDevStackCli.resolveMigrationGen
 - **Stack traces are file-only.** Pattern: keep the existing `System.err.println(e.message)` and add `log.log(Level.WARNING, "<context>", e)` alongside it. Never echo a stack trace to the console.
 - **Logger names are short semantic strings.** Use `Logging.named("LocalDevStackCli")`, not `Logger.getLogger(javaClass.name)`. `LineFormatter` strips dotted prefixes anyway as a belt-and-braces guard so package paths never appear in the log.
 - **Tests do not produce logs.** Tests instantiate `LocalDevStackCli` directly (bypassing `Main.kt`), so `Logging.init()` is never called from `gradle test`. New CLI-level tests should follow the same pattern.
+- **Timestamp formatter is `java.time.DateTimeFormatter` (thread-safe), not `SimpleDateFormat`.** `Logger` infrastructure can publish from background threads (e.g. uncaught-exception handler); `SimpleDateFormat` is the classic JVM-logging race-condition source. Do not "simplify" by reverting.
 
 ### Testing setup
 
@@ -265,20 +266,25 @@ Multiple distinct types → `DetectionException` with explicit `--service` overr
 └── docker-compose.yml                # +migrate: service (profiles: ["migrations"])
 ```
 
-### Adding a new service or database type
+### Adding a new service type
 
-1. Implement `ServiceGenerator` (include `override val runCommand`) **or** `DatabaseGenerator`
-2. If it's a service type, also implement `DockerfileGenerator` for existing-dir mode
-3. Add a `when` branch in `LocalDevStackCli` (`resolveServiceGenerator`, `resolveDockerfileGenerator`, or `resolveDatabaseGenerator`)
-4. Add the volumes list in `serviceVolumes()` for the new service type
-5. Add the env var mapping in `dbEnvVars()` for a new database type
-6. For a new database: also add an entry in `dbConnectionInfo()` (jdbc URL / mongo URI / credentials) and decide which migration tools should be compatible by adding the database to the `supported` map in `resolveMigrationGenerator()`. Ensure the DB generator's compose output ends with the standard `\nvolumes:\n  X_data:` pattern so `appendMigrateBlockToCompose` can find its insertion point — `MigrationComposeAppenderTest` verifies this for every DB.
-7. **Compose-YAML `$$` escape.** docker-compose treats `$VAR` and `${VAR}` as compose-time substitution and `$$VAR` / `$${VAR}` as a literal pass-through to the container shell. In Kotlin source the literal `$` must itself be escaped, so a healthcheck that wants the container's shell to read `$SA_PASSWORD` writes `\$\$SA_PASSWORD` in the generator string (see `SqlServerDatabaseGenerator`). A single `\$` followed by `${...}` is a Kotlin string-template parse error.
+1. Implement `ServiceGenerator` (include `override val runCommand`).
+2. Subclass `DockerfileGenerator` — override `protected fun dockerfile(): String` only. The base class handles `generate()`, the existing-`Dockerfile` warning, and the file path. Do NOT re-implement `generate()`.
+3. Add **one entry** to `SERVICES` in `LocalDevStackCli`'s companion object: `"<type>" to ServiceSpec(::YourServiceGenerator, ::YourDockerfileGenerator, listOf(".:/app", ...))`. The volumes list is per-type (use `DEFAULT_VOLUMES` for the default `[".:/app"]`). The supported-types help string is auto-derived from `SERVICES.keys` — do not edit it separately.
+4. Add parameterized test entries in `AllServiceGeneratorsTest` and `AllDockerfileGeneratorsTest`.
+
+### Adding a new database type
+
+1. Implement `DatabaseGenerator`. **Output contract:** the YAML must end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` can find its insertion point — `MigrationComposeAppenderTest` verifies this and `MigrationComposeAppender` logs a WARNING if a future generator drops the contract.
+2. Add **one entry** to `DATABASES` in the companion object: `"<type>" to DbSpec(::YourDatabaseGenerator, mapOf("<ENV_KEY>" to "<url>"), { DbConnectionInfo(it, jdbcUrl = "...", user = "...", password = "...") })`. JDBC URL, env var, and credentials all live in this single entry — there is no separate `dbEnvVars`/`dbConnectionInfo` `when` block to update.
+3. Add the new DB to `SUPPORTED_MIGRATIONS` (with the compatible tools list, or empty list for "no migration support"). The "supported migration databases" error string is auto-derived from this map.
+4. **Compose-YAML `$$` escape.** docker-compose treats `$VAR` and `${VAR}` as compose-time substitution and `$$VAR` / `$${VAR}` as a literal pass-through to the container shell. In Kotlin source the literal `$` must itself be escaped, so a healthcheck that wants the container's shell to read `$SA_PASSWORD` writes `\$\$SA_PASSWORD` in the generator string (see `SqlServerDatabaseGenerator`). A single `\$` followed by `${...}` is a Kotlin string-template parse error.
 
 ### Adding a new migration tool
 
 1. Implement `MigrationGenerator` — `toolName`, `generateScaffold(outputDir, db, projectName)`, `composeServiceBlock(db)` returning the YAML snippet (must include `profiles: ["migrations"]`, `restart: "no"`, and `depends_on.db.condition: service_healthy`), and `createMigrationHint()` for the "Next steps" output.
-2. Add a `when` branch in `LocalDevStackCli.resolveMigrationGenerator()`.
-3. Add the tool to the `supported` map for each compatible database.
-4. If the tool needs a custom image (e.g. migrate-mongo's npm install) generate a `Dockerfile.migrate` from `generateScaffold` and have `composeServiceBlock` reference it via `build:`.
-5. Add per-tool unit test + entries in `AllMigrationGeneratorsTest` (parameterized invariants) + valid/invalid combo entries in `LocalDevStackCliTest`.
+2. For SQL-based tools, reuse `identityColumnSql(databaseType)` from `MigrationSqlHelpers.kt` rather than re-writing the dialect `when` (Postgres/CockroachDB → `SERIAL`, SQL Server → `IDENTITY(1,1)`, else → `AUTO_INCREMENT`).
+3. Add a `when` branch in `LocalDevStackCli.resolveMigrationGenerator()` (the inner factory `when`, not the supported-map check).
+4. Add the tool to `SUPPORTED_MIGRATIONS` (companion object) under each compatible database.
+5. If the tool needs a custom image (e.g. migrate-mongo's npm install), generate a `Dockerfile.migrate` from `generateScaffold` and have `composeServiceBlock` reference it via `build:`.
+6. Add per-tool unit test + entries in `AllMigrationGeneratorsTest` (parameterized invariants) + valid/invalid combo entries in `LocalDevStackCliTest`.
