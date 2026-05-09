@@ -8,6 +8,7 @@ import picocli.CommandLine.Option
 import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.logging.Level
 
 @Command(
     name = "localdevstack",
@@ -79,7 +80,14 @@ class LocalDevStackCli : Runnable {
     // Set to true in tests to skip the docker availability check
     internal var skipDockerCheck: Boolean = false
 
+    private val log = Logging.named("LocalDevStackCli")
+
     override fun run() {
+        log.info(
+            "invoke: mode=${if (existingDir != null) "existing-dir" else "new-service"}" +
+                " service=${serviceType ?: "(default)"} database=$databaseType" +
+                " migration=${migrationTool ?: "(none)"} name=$projectName"
+        )
         if (!skipDockerCheck) { checkDockerAvailable() ?: return }
 
         if (existingDir != null) {
@@ -87,6 +95,7 @@ class LocalDevStackCli : Runnable {
         } else {
             runNewServiceMode()
         }
+        log.info("invoke complete")
     }
 
     // ── Docker check ─────────────────────────────────────────────────────────────
@@ -100,12 +109,14 @@ class LocalDevStackCli : Runnable {
         }.getOrNull()
 
         if (result == null || result != 0) {
+            log.warning("docker check failed (exit=${result ?: "spawn-error"})")
             System.err.println("Error: Docker is not running or not installed.")
             System.err.println("  LocalDevelopmentStack requires Docker to run the generated stack.")
             System.err.println("  Install Docker Desktop: https://www.docker.com/products/docker-desktop")
             System.err.println("  Then start Docker and re-run this command.")
             return null
         }
+        log.info("docker check ok")
         return Unit
     }
 
@@ -113,15 +124,26 @@ class LocalDevStackCli : Runnable {
 
     private fun runExistingServiceMode() {
         val existingPath = Path.of(existingDir!!).toAbsolutePath().normalize()
+        log.info("existing-dir mode: path=$existingPath")
 
         if (!Files.isDirectory(existingPath)) {
+            log.warning("existing-dir is not a directory: $existingPath")
             System.err.println("Error: --existing-dir '$existingPath' is not a directory or does not exist.")
             return
         }
 
         val resolvedServiceType = try {
-            serviceType?.lowercase() ?: ExistingServiceDetector.detect(existingPath)
+            val explicit = serviceType?.lowercase()
+            if (explicit != null) {
+                log.info("service type: $explicit (explicit)")
+                explicit
+            } else {
+                val detected = ExistingServiceDetector.detect(existingPath)
+                log.info("service type: $detected (auto-detected)")
+                detected
+            }
         } catch (e: DetectionException) {
+            log.log(Level.WARNING, "service detection failed", e)
             System.err.println(e.message)
             return
         }
@@ -137,6 +159,7 @@ class LocalDevStackCli : Runnable {
 
         val resolvedPort = resolvePort()
         val resolvedName = if (projectName == "hello-service") existingPath.fileName.toString() else projectName
+        log.info("resolved: name=$resolvedName port=$resolvedPort")
 
         val envVars = dbEnvVars(databaseType)
         val serviceConfig = ServiceComposeConfig(
@@ -154,11 +177,14 @@ class LocalDevStackCli : Runnable {
         if (migrationGenerator != null) println("  Migration: ${migrationGenerator.toolName}")
         println()
 
+        log.info("generating Dockerfile.dev at $existingPath")
         dockerfileGenerator.generate(existingPath, resolvedName)
+        log.info("generating docker-compose.yml at $existingPath")
         databaseGenerator.generate(existingPath, serviceConfig)
 
         if (migrationGenerator != null) {
             val dbInfo = dbConnectionInfo(databaseType)
+            log.info("generating migration scaffold (${migrationGenerator.toolName}) at $existingPath")
             migrationGenerator.generateScaffold(existingPath, dbInfo, resolvedName)
             appendMigrateBlockToCompose(
                 existingPath.resolve("docker-compose.yml"),
@@ -200,17 +226,21 @@ class LocalDevStackCli : Runnable {
         val outputPath = Path.of(outputDir).toAbsolutePath().normalize()
         val cwd = Path.of("").toAbsolutePath()
         if (!outputPath.startsWith(cwd)) {
+            log.warning("output rejected (outside cwd): outputPath=$outputPath cwd=$cwd")
             System.err.println("Output directory must be within the current working directory: $cwd")
             return
         }
+        log.info("new-service mode: service=$effectiveServiceType outputPath=$outputPath")
 
         val outputFile = outputPath.toFile()
         if (outputFile.exists() && (outputFile.list()?.isNotEmpty() == true)) {
             if (!force) {
+                log.warning("non-empty output rejected: $outputPath")
                 System.err.println("Output directory '$outputPath' already exists and is not empty.")
                 System.err.println("Use --force to overwrite existing files.")
                 return
             }
+            log.info("force overwrite: $outputPath")
             println("WARNING: overwriting existing files in $outputPath")
         }
 
@@ -221,11 +251,14 @@ class LocalDevStackCli : Runnable {
         if (migrationGenerator != null) println("  Migration: ${migrationGenerator.toolName}")
         println()
 
+        log.info("generating service ($effectiveServiceType) at $outputPath")
         serviceGenerator.generate(outputPath, projectName)
+        log.info("generating docker-compose.yml at $outputPath")
         databaseGenerator.generate(outputPath)
 
         if (migrationGenerator != null) {
             val dbInfo = dbConnectionInfo(databaseType)
+            log.info("generating migration scaffold (${migrationGenerator.toolName}) at $outputPath")
             migrationGenerator.generateScaffold(outputPath, dbInfo, projectName)
             appendMigrateBlockToCompose(
                 outputPath.resolve("docker-compose.yml"),
@@ -288,6 +321,7 @@ class LocalDevStackCli : Runnable {
         "php"        -> PhpServiceGenerator()
         "ruby"       -> RubyServiceGenerator()
         else -> {
+            log.warning("unsupported service type: $type")
             System.err.println("Unsupported service type: '$type'.")
             System.err.println("Supported: springboot, go, python, node, rust, dotnet, java, php, ruby")
             null
@@ -305,6 +339,7 @@ class LocalDevStackCli : Runnable {
         "php"        -> PhpDockerfileGenerator()
         "ruby"       -> RubyDockerfileGenerator()
         else -> {
+            log.warning("unsupported service type for Dockerfile: $type")
             System.err.println("Unsupported service type: '$type'.")
             System.err.println("Supported: springboot, go, python, node, rust, dotnet, java, php, ruby")
             null
@@ -321,6 +356,7 @@ class LocalDevStackCli : Runnable {
         "sqlserver"     -> SqlServerDatabaseGenerator()
         "elasticsearch" -> ElasticsearchDatabaseGenerator()
         else -> {
+            log.warning("unsupported database type: $type")
             System.err.println("Unsupported database type: '$type'.")
             System.err.println("Supported: postgres, mysql, mongodb, cockroachdb, redis, mariadb, sqlserver, elasticsearch")
             null
@@ -382,26 +418,31 @@ class LocalDevStackCli : Runnable {
 
         val tools = supported[db]
         if (tools == null) {
+            log.warning("unsupported database for migrations: $databaseType")
             System.err.println("Unsupported database type for migrations: '$databaseType'.")
             return null
         }
         if (tools.isEmpty()) {
+            log.warning("no migration tools support database: $databaseType")
             System.err.println("Migrations are not supported for database '$databaseType'.")
             System.err.println("  Supported databases: postgres, mysql, mariadb, sqlserver, cockroachdb, mongodb")
             return null
         }
         if (t !in tools) {
+            log.warning("incompatible (database, tool): $databaseType / $tool")
             System.err.println("Migration tool '$tool' is not supported for database '$databaseType'.")
             System.err.println("  Supported for $databaseType: ${tools.joinToString(", ")}")
             return null
         }
 
+        log.info("migration generator: $t for $db")
         return when (t) {
             "flyway"         -> FlywayMigrationGenerator()
             "liquibase"      -> LiquibaseMigrationGenerator()
             "migrate-mongo"  -> MigrateMongoMigrationGenerator()
             "golang-migrate" -> GolangMigrateMigrationGenerator()
             else -> {
+                log.warning("unknown migration tool: $tool")
                 System.err.println("Unknown migration tool: '$tool'.")
                 null
             }
@@ -411,6 +452,7 @@ class LocalDevStackCli : Runnable {
     private fun validateNameForMigrations(name: String): Boolean {
         val lower = name.lowercase()
         if (lower == "migrate" || lower == "db") {
+            log.warning("name '$name' conflicts with reserved compose service '$lower'")
             System.err.println("Error: --name '$name' conflicts with the '$lower:' service in the generated docker-compose.yml.")
             System.err.println("  Choose a different --name when --migration is set.")
             return false
@@ -440,6 +482,7 @@ class LocalDevStackCli : Runnable {
         }
 
         if (collisions.isNotEmpty() && !force) {
+            log.warning("migration scaffold collisions: ${collisions.joinToString(", ")}")
             System.err.println("Error: migration scaffolding would overwrite existing files:")
             collisions.forEach { System.err.println("  - $it") }
             System.err.println("Use --force to overwrite, or remove the conflicting files first.")

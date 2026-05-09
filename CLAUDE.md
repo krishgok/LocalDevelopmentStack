@@ -200,6 +200,23 @@ Compatibility validation is centralized in `LocalDevStackCli.resolveMigrationGen
 - **Pinning.** All migration tool images are pinned at major+minor (matching project convention for DB images). The migrate-mongo npm package is strictly version-pinned.
 - **Connection retries.** Tools that support it include retry flags (e.g. Flyway `-connectRetries=60`). Healthchecks can fire mid-init; never rely on `service_healthy` alone.
 
+### Logging (`Logging.kt`)
+
+`Main.kt` calls `Logging.init()` once at startup; `LocalDevStackCli` calls `Logging.named("LocalDevStackCli").info(...)` at decision points. Why `java.util.logging` and not Logback/SLF4J: zero new runtime deps and no `--initialize-at-build-time` / reflect-config entries needed for `gradle nativeCompile`.
+
+- **Output.** `./logs/localdevstack.log`, relative to invocation CWD. Same path whether invoked via `gradle run`, `java -jar`, or the GraalVM native binary.
+- **Size cap.** `SizeCappedFileHandler` truncates the file in place when it reaches 10 MB. No `.0`/`.1` rotation suffixes — total disk usage stays ≤10 MB. `LoggingTest` exercises this with a 1 KB cap.
+- **Two channels, do not collapse them.** Console (`println` / `System.err.println`) is the user-facing channel and stays untouched — adding a feature must NOT replace those calls with log calls. The file is for triage detail (mode dispatch, generator selection, validation rejections, full stack traces).
+- **Stack traces are file-only.** Pattern: keep the existing `System.err.println(e.message)` and add `log.log(Level.WARNING, "<context>", e)` alongside it. Never echo a stack trace to the console.
+- **Logger names are short semantic strings.** Use `Logging.named("LocalDevStackCli")`, not `Logger.getLogger(javaClass.name)`. `LineFormatter` strips dotted prefixes anyway as a belt-and-braces guard so package paths never appear in the log.
+- **Tests do not produce logs.** Tests instantiate `LocalDevStackCli` directly (bypassing `Main.kt`), so `Logging.init()` is never called from `gradle test`. New CLI-level tests should follow the same pattern.
+
+### Testing setup
+
+`tasks.test` in `build.gradle.kts` sets `java.io.tmpdir` to `build/test-tmp/`. **Do not remove this.** `LocalDevStackCli.runNewServiceMode()` rejects any `outputDir` outside the JVM's CWD as a safety check against typos like `--output /etc`. JUnit `@TempDir` defaults to the OS temp dir, which would fail that check. Pointing `java.io.tmpdir` inside the project tree makes every `@TempDir` land in a path that satisfies the production validation, so tests don't need a special bypass flag.
+
+Tests use `LocalDevStackCli().apply { skipDockerCheck = true; outputDir = tempDir.toString(); ... }` — direct property assignment, not picocli parsing. `skipDockerCheck` is the only test-only seam in production code.
+
 ### Language detection (`ExistingServiceDetector`)
 
 Detects service type from root-level sentinel files:
@@ -256,6 +273,7 @@ Multiple distinct types → `DetectionException` with explicit `--service` overr
 4. Add the volumes list in `serviceVolumes()` for the new service type
 5. Add the env var mapping in `dbEnvVars()` for a new database type
 6. For a new database: also add an entry in `dbConnectionInfo()` (jdbc URL / mongo URI / credentials) and decide which migration tools should be compatible by adding the database to the `supported` map in `resolveMigrationGenerator()`. Ensure the DB generator's compose output ends with the standard `\nvolumes:\n  X_data:` pattern so `appendMigrateBlockToCompose` can find its insertion point — `MigrationComposeAppenderTest` verifies this for every DB.
+7. **Compose-YAML `$$` escape.** docker-compose treats `$VAR` and `${VAR}` as compose-time substitution and `$$VAR` / `$${VAR}` as a literal pass-through to the container shell. In Kotlin source the literal `$` must itself be escaped, so a healthcheck that wants the container's shell to read `$SA_PASSWORD` writes `\$\$SA_PASSWORD` in the generator string (see `SqlServerDatabaseGenerator`). A single `\$` followed by `${...}` is a Kotlin string-template parse error.
 
 ### Adding a new migration tool
 
