@@ -30,7 +30,7 @@ class SqlServerDatabaseGenerator : DatabaseGenerator {
         appendLine("    volumes:")
         appendLine("      - sqlserver_data:/var/opt/mssql")
         appendLine("    healthcheck:")
-        appendLine("      test: [\"CMD-SHELL\", \"/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \$${SA_PASSWORD:-DevOnly_123!} -Q 'SELECT 1' || exit 1\"]")
+        appendLine("      test: [\"CMD-SHELL\", \"/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \$\${SA_PASSWORD:-DevOnly_123!} -Q 'SELECT 1' || exit 1\"]")
         appendLine("      interval: 15s")
         appendLine("      timeout: 10s")
         appendLine("      retries: 5")

@@ -68,7 +68,7 @@ class AllDockerfileGeneratorsTest {
         Files.writeString(tempDir.resolve("Dockerfile"), sentinel)
         gen.generate(tempDir, "test-svc")
         assertContains(tempDir.resolve("Dockerfile").toFile().readText(), sentinel,
-            "$name: existing Dockerfile was overwritten")
+            message = "$name: existing Dockerfile was overwritten")
         assertTrue(tempDir.resolve("Dockerfile.dev").toFile().exists(),
             "$name: Dockerfile.dev should still be created alongside existing Dockerfile")
     }
@@ -78,7 +78,7 @@ class AllDockerfileGeneratorsTest {
     fun `Dockerfile dev exposes port 8080`(name: String, gen: DockerfileGenerator) {
         gen.generate(tempDir, "test-svc")
         assertContains(tempDir.resolve("Dockerfile.dev").toFile().readText(), "8080",
-            "$name: Dockerfile.dev must expose port 8080")
+            message = "$name: Dockerfile.dev must expose port 8080")
     }
 
     @ParameterizedTest(name = "{0}")
@@ -86,7 +86,7 @@ class AllDockerfileGeneratorsTest {
     fun `Dockerfile dev specifies a FROM instruction`(name: String, gen: DockerfileGenerator) {
         gen.generate(tempDir, "test-svc")
         assertContains(tempDir.resolve("Dockerfile.dev").toFile().readText(), "FROM",
-            "$name: Dockerfile.dev must have at least one FROM instruction")
+            message = "$name: Dockerfile.dev must have at least one FROM instruction")
     }
 
     @ParameterizedTest(name = "{0}")
@@ -135,7 +135,7 @@ class AllDockerfileGeneratorsTest {
         gen.generate(tempDir, "test-svc")
         val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
         assertContains(content, hotReloadTool,
-            "$name: Dockerfile.dev must reference hot-reload tool '$hotReloadTool'")
+            message = "$name: Dockerfile.dev must reference hot-reload tool '$hotReloadTool'")
     }
 
     @ParameterizedTest(name = "{0} copies dependency manifest")
@@ -146,6 +146,6 @@ class AllDockerfileGeneratorsTest {
         gen.generate(tempDir, "test-svc")
         val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
         assertContains(content, depManifest,
-            "$name: Dockerfile.dev must COPY the dependency manifest ('$depManifest') for layer caching, even though source is volume-mounted")
+            message = "$name: Dockerfile.dev must COPY the dependency manifest ('$depManifest') for layer caching, even though source is volume-mounted")
     }
 }

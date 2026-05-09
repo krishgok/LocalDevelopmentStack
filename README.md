@@ -7,6 +7,8 @@ Two modes:
 - **New service** — generates a complete runnable service + `docker-compose.yml` from scratch.
 - **Existing service** — wraps your existing code with a `Dockerfile.dev` + `docker-compose.yml`. Hot-reload is enabled; source changes are picked up automatically inside the container.
 
+Optional **database migrations** — pass `--migration <tool>` (Flyway, Liquibase, migrate-mongo, golang-migrate) to scaffold an example migration plus a one-shot `migrate:` service that runs on demand via `docker-compose run --rm migrate`.
+
 > **No JVM required.** LocalDevelopmentStack is distributed as a self-contained native binary.
 
 ---
@@ -276,6 +278,66 @@ es = Elasticsearch(os.environ["ELASTICSEARCH_URL"])
 
 ---
 
+## Database migrations (optional)
+
+Pass `--migration <tool>` to scaffold migration files plus a one-shot `migrate:` service in your generated `docker-compose.yml`. The migrate service is tagged with the `migrations` profile so it does **not** auto-start with `docker-compose up` — you run it explicitly when you want to apply migrations.
+
+### Supported tools
+
+| `--migration`    | Compatible databases                                                  | Scaffolds                                                                       |
+|------------------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|
+| `flyway`         | `postgres`, `mysql`, `mariadb`, `sqlserver`, `cockroachdb`            | `migrations/V001__init.sql`                                                     |
+| `liquibase`      | `postgres`, `mysql`, `mariadb`, `sqlserver`                           | `db/changelog/db.changelog-master.sql` (Liquibase formatted SQL)                |
+| `migrate-mongo`  | `mongodb`                                                             | `Dockerfile.migrate` + `migrate-mongo-config.js` + `migrations/0001-init.js`    |
+| `golang-migrate` | `postgres`, `mysql`, `mariadb`, `cockroachdb`, `sqlserver`, `mongodb` | `migrations/000001_init.up.sql` + `000001_init.down.sql` (or `.json` for mongo) |
+
+`redis` and `elasticsearch` do not support migration scaffolding (no schema concept). `cockroachdb` + `liquibase` is rejected because the stock Liquibase image does not ship the CockroachDB driver extension.
+
+### New service with migrations
+
+```bash
+localdevstack --service go --database postgres --migration flyway --output ./my-project --name my-api
+cd my-project
+docker-compose up -d                  # starts postgres only — migrate is skipped (compose profile)
+docker-compose run --rm migrate       # applies all pending migrations
+cd service && go run ./...            # start your service
+```
+
+### Existing service with migrations
+
+```bash
+localdevstack --existing-dir ./my-existing-api --database postgres --migration flyway
+cd my-existing-api
+docker-compose up --build -d          # service + db (migrate skipped)
+docker-compose run --rm migrate       # apply migrations on demand
+```
+
+If `migrations/` (or `db/changelog/` for Liquibase, or `Dockerfile.migrate` for migrate-mongo) already exists in the target directory and contains files, the CLI aborts to protect your real migrations. Pass `--force` to overwrite.
+
+### Adding more migrations
+
+Drop new files into the appropriate directory using your tool's naming convention, then re-run:
+
+```bash
+docker-compose run --rm migrate
+```
+
+| Tool             | Add new migration                                                                     |
+|------------------|---------------------------------------------------------------------------------------|
+| `flyway`         | Create `migrations/V<N>__<name>.sql`                                                  |
+| `liquibase`      | Append a new `--changeset` block to `db/changelog/db.changelog-master.sql`            |
+| `migrate-mongo`  | `docker-compose run --rm migrate create <name>` then edit the generated file         |
+| `golang-migrate` | `docker-compose run --rm migrate create -ext sql -dir /migrations -seq <name>`       |
+
+### Restrictions
+
+- The `migrate:` service is **not** auto-run on `docker-compose up`. Run it explicitly.
+- Your service container does **not** depend on `migrate`. Run migrations before starting your service if your code expects the schema to exist.
+- One migration tool per stack. Switching tools requires regenerating with `--force`.
+- `--name migrate` and `--name db` are rejected when migrations are enabled (would collide with the `migrate:` / `db:` compose service names).
+
+---
+
 ## Multi-database setup
 
 One database per invocation by design. To add a second database (e.g. Redis for caching alongside Postgres):
@@ -297,8 +359,8 @@ rm -rf ./tmp-redis
 
 ## ⚠️ Important disclaimers
 
-**Database migrations are not run.**
-LocalDevelopmentStack creates the database container and injects the connection string. It does not create schemas, run migration scripts, or seed data. Run your own migrations (Flyway, Liquibase, Alembic, ActiveRecord, Goose, etc.) after the container is healthy.
+**Database migrations are opt-in and run on demand.**
+By default, LocalDevelopmentStack only creates the database container and injects the connection string — it does not create schemas or seed data. Pass `--migration <tool>` (see [Database migrations](#database-migrations-optional)) to scaffold an example migration and a `migrate:` compose service. Even when generated, the migrate service uses the `migrations` compose profile so it does **not** auto-start with `docker-compose up` — invoke it explicitly with `docker-compose run --rm migrate` when you want to apply migrations.
 
 **`Dockerfile.dev` is for local development only.**
 The generated `Dockerfile.dev` is optimised for developer convenience — hot-reload, full source access, development dependencies. It is not hardened for production. Review it thoroughly before using it in any shared or production environment. Never use `Dockerfile.dev` in a production pipeline.

@@ -24,6 +24,11 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // @TempDir reads java.io.tmpdir. Point it inside the project so paths
+    // satisfy LocalDevStackCli's CWD safety check.
+    val testTmp = layout.buildDirectory.dir("test-tmp").get().asFile
+    doFirst { testTmp.mkdirs() }
+    systemProperty("java.io.tmpdir", testTmp.absolutePath)
 }
 
 application {

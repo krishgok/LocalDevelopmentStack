@@ -63,6 +63,19 @@ class LocalDevStackCli : Runnable {
     )
     var port: Int? = null
 
+    @Option(
+        names = ["--migration", "-m"],
+        description = [
+            "Migration tool. Supported per-database:",
+            "  postgres/mysql/mariadb/sqlserver: flyway, liquibase",
+            "  cockroachdb:                     flyway",
+            "  mongodb:                         migrate-mongo, golang-migrate",
+            "  redis/elasticsearch:             not supported",
+            "Omit to skip migration scaffolding."
+        ]
+    )
+    var migrationTool: String? = null
+
     // Set to true in tests to skip the docker availability check
     internal var skipDockerCheck: Boolean = false
 
@@ -116,6 +129,12 @@ class LocalDevStackCli : Runnable {
         val dockerfileGenerator = resolveDockerfileGenerator(resolvedServiceType) ?: return
         val databaseGenerator = resolveDatabaseGenerator(databaseType) ?: return
 
+        val migrationGenerator = migrationTool?.let { resolveMigrationGenerator(databaseType, it) ?: return }
+        if (migrationGenerator != null) {
+            if (!validateNameForMigrations(projectName)) return
+            if (!checkMigrationCollision(existingPath, migrationGenerator)) return
+        }
+
         val resolvedPort = resolvePort()
         val resolvedName = if (projectName == "hello-service") existingPath.fileName.toString() else projectName
 
@@ -132,10 +151,20 @@ class LocalDevStackCli : Runnable {
         println("  Service  : $resolvedServiceType  (detected from ${existingPath.fileName})")
         println("  Database : $databaseType")
         println("  Port     : $resolvedPort")
+        if (migrationGenerator != null) println("  Migration: ${migrationGenerator.toolName}")
         println()
 
         dockerfileGenerator.generate(existingPath, resolvedName)
         databaseGenerator.generate(existingPath, serviceConfig)
+
+        if (migrationGenerator != null) {
+            val dbInfo = dbConnectionInfo(databaseType)
+            migrationGenerator.generateScaffold(existingPath, dbInfo, resolvedName)
+            appendMigrateBlockToCompose(
+                existingPath.resolve("docker-compose.yml"),
+                migrationGenerator.composeServiceBlock(dbInfo)
+            )
+        }
 
         println()
         println("Files generated in: $existingPath")
@@ -150,6 +179,10 @@ class LocalDevStackCli : Runnable {
         println("     recompiles/restarts your service automatically.")
         println("  4. Verify your service using your own endpoints.")
         println("     (LocalDevelopmentStack does not add or modify any endpoints in your service.)")
+        if (migrationGenerator != null) {
+            println("  5. Run migrations: docker-compose run --rm migrate")
+            println("     ${migrationGenerator.createMigrationHint()}")
+        }
         printMultiDbTip(existingDir!!, databaseType)
     }
 
@@ -160,6 +193,9 @@ class LocalDevStackCli : Runnable {
 
         val serviceGenerator = resolveServiceGenerator(effectiveServiceType) ?: return
         val databaseGenerator = resolveDatabaseGenerator(databaseType) ?: return
+
+        val migrationGenerator = migrationTool?.let { resolveMigrationGenerator(databaseType, it) ?: return }
+        if (migrationGenerator != null && !validateNameForMigrations(projectName)) return
 
         val outputPath = Path.of(outputDir).toAbsolutePath().normalize()
         val cwd = Path.of("").toAbsolutePath()
@@ -182,10 +218,20 @@ class LocalDevStackCli : Runnable {
         println("  Service  : $effectiveServiceType")
         println("  Database : $databaseType")
         println("  Output   : $outputPath")
+        if (migrationGenerator != null) println("  Migration: ${migrationGenerator.toolName}")
         println()
 
         serviceGenerator.generate(outputPath, projectName)
         databaseGenerator.generate(outputPath)
+
+        if (migrationGenerator != null) {
+            val dbInfo = dbConnectionInfo(databaseType)
+            migrationGenerator.generateScaffold(outputPath, dbInfo, projectName)
+            appendMigrateBlockToCompose(
+                outputPath.resolve("docker-compose.yml"),
+                migrationGenerator.composeServiceBlock(dbInfo)
+            )
+        }
 
         println()
         println("Stack generated at: $outputPath")
@@ -196,6 +242,10 @@ class LocalDevStackCli : Runnable {
         println("  3. cd service && ${serviceGenerator.runCommand}")
         println("  4. curl http://localhost:8080/health")
         println("     → {\"status\":\"ok\"}")
+        if (migrationGenerator != null) {
+            println("  5. Run migrations: docker-compose run --rm migrate")
+            println("     ${migrationGenerator.createMigrationHint()}")
+        }
         printMultiDbTip(outputDir, databaseType)
     }
 
@@ -298,5 +348,107 @@ class LocalDevStackCli : Runnable {
         "sqlserver"     -> mapOf("DATABASE_URL" to "Server=db,1433;Database=app_db;User=sa;Password=DevOnly_123!")
         "elasticsearch" -> mapOf("ELASTICSEARCH_URL" to "http://db:9200")
         else            -> emptyMap()
+    }
+
+    // ── Migration support ────────────────────────────────────────────────────────
+
+    private fun dbConnectionInfo(type: String): DbConnectionInfo {
+        val lower = type.lowercase()
+        return when (lower) {
+            "postgres"    -> DbConnectionInfo(lower, jdbcUrl = "jdbc:postgresql://db:5432/app_db", user = "postgres", password = "postgres_dev_only")
+            "mysql"       -> DbConnectionInfo(lower, jdbcUrl = "jdbc:mysql://db:3306/app_db", user = "mysql", password = "mysql_dev_only")
+            "mariadb"     -> DbConnectionInfo(lower, jdbcUrl = "jdbc:mariadb://db:3306/app_db", user = "app_user", password = "mariadb_dev_only")
+            "cockroachdb" -> DbConnectionInfo(lower, jdbcUrl = "jdbc:postgresql://db:26257/app_db?sslmode=disable", user = "root", password = "")
+            "sqlserver"   -> DbConnectionInfo(lower, jdbcUrl = "jdbc:sqlserver://db:1433;databaseName=app_db;encrypt=false;trustServerCertificate=true", user = "sa", password = "DevOnly_123!")
+            "mongodb"     -> DbConnectionInfo(lower, mongoUri = "mongodb://db:27017/app_db")
+            else          -> DbConnectionInfo(lower)
+        }
+    }
+
+    private fun resolveMigrationGenerator(databaseType: String, tool: String): MigrationGenerator? {
+        val db = databaseType.lowercase()
+        val t = tool.lowercase()
+
+        val supported: Map<String, List<String>> = mapOf(
+            "postgres"    to listOf("flyway", "liquibase"),
+            "mysql"       to listOf("flyway", "liquibase"),
+            "mariadb"     to listOf("flyway", "liquibase"),
+            "sqlserver"   to listOf("flyway", "liquibase"),
+            "cockroachdb" to listOf("flyway"),
+            "mongodb"     to listOf("migrate-mongo", "golang-migrate"),
+            "redis"       to emptyList(),
+            "elasticsearch" to emptyList(),
+        )
+
+        val tools = supported[db]
+        if (tools == null) {
+            System.err.println("Unsupported database type for migrations: '$databaseType'.")
+            return null
+        }
+        if (tools.isEmpty()) {
+            System.err.println("Migrations are not supported for database '$databaseType'.")
+            System.err.println("  Supported databases: postgres, mysql, mariadb, sqlserver, cockroachdb, mongodb")
+            return null
+        }
+        if (t !in tools) {
+            System.err.println("Migration tool '$tool' is not supported for database '$databaseType'.")
+            System.err.println("  Supported for $databaseType: ${tools.joinToString(", ")}")
+            return null
+        }
+
+        return when (t) {
+            "flyway"         -> FlywayMigrationGenerator()
+            "liquibase"      -> LiquibaseMigrationGenerator()
+            "migrate-mongo"  -> MigrateMongoMigrationGenerator()
+            "golang-migrate" -> GolangMigrateMigrationGenerator()
+            else -> {
+                System.err.println("Unknown migration tool: '$tool'.")
+                null
+            }
+        }
+    }
+
+    private fun validateNameForMigrations(name: String): Boolean {
+        val lower = name.lowercase()
+        if (lower == "migrate" || lower == "db") {
+            System.err.println("Error: --name '$name' conflicts with the '$lower:' service in the generated docker-compose.yml.")
+            System.err.println("  Choose a different --name when --migration is set.")
+            return false
+        }
+        return true
+    }
+
+    private fun checkMigrationCollision(existingPath: Path, generator: MigrationGenerator): Boolean {
+        val collisions = mutableListOf<Path>()
+        when (generator.toolName) {
+            "flyway", "golang-migrate", "migrate-mongo" -> {
+                val migrationsDir = existingPath.resolve("migrations")
+                if (Files.isDirectory(migrationsDir) && migrationsDir.toFile().list()?.isNotEmpty() == true) {
+                    collisions.add(migrationsDir)
+                }
+            }
+            "liquibase" -> {
+                val changelogDir = existingPath.resolve("db/changelog")
+                if (Files.isDirectory(changelogDir) && changelogDir.toFile().list()?.isNotEmpty() == true) {
+                    collisions.add(changelogDir)
+                }
+            }
+        }
+        if (generator.toolName == "migrate-mongo") {
+            val dockerfileMigrate = existingPath.resolve("Dockerfile.migrate")
+            if (Files.exists(dockerfileMigrate)) collisions.add(dockerfileMigrate)
+        }
+
+        if (collisions.isNotEmpty() && !force) {
+            System.err.println("Error: migration scaffolding would overwrite existing files:")
+            collisions.forEach { System.err.println("  - $it") }
+            System.err.println("Use --force to overwrite, or remove the conflicting files first.")
+            return false
+        }
+        if (collisions.isNotEmpty() && force) {
+            println("WARNING: --force is set; overwriting existing migration files in:")
+            collisions.forEach { println("  - $it") }
+        }
+        return true
     }
 }

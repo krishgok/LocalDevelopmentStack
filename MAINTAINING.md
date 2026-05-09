@@ -107,13 +107,17 @@ LocalDevelopmentStack/          ← private source repo
 │   └── release.yml             ← 4-platform CI + publish to dist repo
 ├── src/
 │   └── main/kotlin/com/localdevstack/
-│       ├── LocalDevStackCli.kt         ← picocli CLI, two modes
+│       ├── LocalDevStackCli.kt         ← picocli CLI, two modes + --migration flag
 │       ├── detector/
 │       │   └── ExistingServiceDetector.kt
 │       └── generator/
 │           ├── *ServiceGenerator.kt    ← 9 implementations
 │           ├── *DatabaseGenerator.kt   ← 8 implementations
 │           ├── *DockerfileGenerator.kt ← 9 implementations (hot-reload)
+│           ├── *MigrationGenerator.kt  ← 4 implementations (Flyway, Liquibase,
+│           │                              migrate-mongo, golang-migrate) + interface
+│           ├── MigrationComposeAppender.kt ← post-processes compose.yml to insert
+│           │                                  the migrate service block
 │           └── ServiceComposeConfig.kt
 ├── Formula/
 │   └── localdevstack.rb        ← seed for Homebrew formula (CI keeps updated)
@@ -135,5 +139,15 @@ LocalDevelopmentStack/          ← private source repo
 1. Implement `ServiceGenerator` + `DockerfileGenerator` (for service) or `DatabaseGenerator`
 2. Add `when` branches in `LocalDevStackCli` (`resolveServiceGenerator`, `resolveDockerfileGenerator`, or `resolveDatabaseGenerator`)
 3. For a new service type: add volumes in `serviceVolumes()` and env vars in `dbEnvVars()` as appropriate
-4. Add parameterized test entries in `AllServiceGeneratorsTest` / `AllDockerfileGeneratorsTest`
-5. Update the supported types tables in `README.md` and `CLAUDE.md`
+4. **For a new database type**: also add an entry in `dbConnectionInfo()` (jdbc URL / mongo URI / credentials) and add the database to the `supported` map in `resolveMigrationGenerator()` listing the compatible migration tools (or empty list for "no migration support"). Confirm the new DB generator's compose YAML ends with the standard `\nvolumes:\n  X_data:` pattern — `MigrationComposeAppenderTest` will fail if the splitter cannot find its insertion point.
+5. Add parameterized test entries in `AllServiceGeneratorsTest` / `AllDockerfileGeneratorsTest`
+6. Update the supported types tables in `README.md` and `CLAUDE.md`
+
+## Adding a new migration tool
+
+1. Implement `MigrationGenerator` (interface in `generator/MigrationGenerator.kt`) — `toolName`, `generateScaffold`, `composeServiceBlock` (must include `profiles: ["migrations"]`, `restart: "no"`, and `depends_on.db.condition: service_healthy`), `createMigrationHint`.
+2. Add the tool to `LocalDevStackCli.resolveMigrationGenerator()` and to the per-database `supported` map for each compatible DB.
+3. Pin the tool image at major+minor (matching the project convention for DB images). For npm-distributed tools, generate a `Dockerfile.migrate` in `generateScaffold` and pin the package version strictly.
+4. Add a per-tool unit test in `src/test/kotlin/com/localdevstack/generator/`, plus tuples in `AllMigrationGeneratorsTest.allGenerators()` (and `sqlGenerators()` if SQL-only).
+5. Add valid/invalid `(database, tool)` rows to the `@CsvSource` matrices in `LocalDevStackCliTest`.
+6. Update the migration tools table in `README.md` and the migration generators table in `CLAUDE.md`.
