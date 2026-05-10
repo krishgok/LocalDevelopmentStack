@@ -21,6 +21,9 @@ object ExistingServiceDetector {
     )
 
     fun detect(dir: Path): String {
+        // distinctBy collapses duplicate sentinels of the same type (e.g.
+        // build.gradle + build.gradle.kts both → "springboot") so the
+        // "multiple types" branch only fires for genuinely different languages.
         val matches = sentinels
             .filter { (file, _) -> Files.exists(dir.resolve(file)) }
             .map { (file, type) -> file to type }

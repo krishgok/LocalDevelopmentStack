@@ -134,20 +134,27 @@ LocalDevelopmentStack/          ← private source repo
 
 ---
 
-## Adding a new service or database type
+## Adding a new service type
 
-1. Implement `ServiceGenerator` + `DockerfileGenerator` (for service) or `DatabaseGenerator`
-2. Add `when` branches in `LocalDevStackCli` (`resolveServiceGenerator`, `resolveDockerfileGenerator`, or `resolveDatabaseGenerator`)
-3. For a new service type: add volumes in `serviceVolumes()` and env vars in `dbEnvVars()` as appropriate
-4. **For a new database type**: also add an entry in `dbConnectionInfo()` (jdbc URL / mongo URI / credentials) and add the database to the `supported` map in `resolveMigrationGenerator()` listing the compatible migration tools (or empty list for "no migration support"). Confirm the new DB generator's compose YAML ends with the standard `\nvolumes:\n  X_data:` pattern — `MigrationComposeAppenderTest` will fail if the splitter cannot find its insertion point.
-5. Add parameterized test entries in `AllServiceGeneratorsTest` / `AllDockerfileGeneratorsTest`
-6. Update the supported types tables in `README.md` and `CLAUDE.md`
+1. Implement `ServiceGenerator` (include `override val runCommand`).
+2. Subclass `DockerfileGenerator` — only override `protected fun dockerfile(): String`. The base class handles the rest.
+3. Add **one entry** to the `SERVICES` map in `LocalDevStackCli`'s companion object: `"<type>" to ServiceSpec(::YourServiceGenerator, ::YourDockerfileGenerator, listOf(".:/app", ...))`.
+4. Add parameterized rows in `AllServiceGeneratorsTest` and `AllDockerfileGeneratorsTest`.
+5. Update the supported-types tables in `README.md` and `CLAUDE.md`.
+
+## Adding a new database type
+
+1. Implement `DatabaseGenerator`. The compose YAML **must** end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` can splice the migrate block. `MigrationComposeAppenderTest` enforces this.
+2. Add **one entry** to the `DATABASES` map in the companion object: `"<type>" to DbSpec(::YourDatabaseGenerator, mapOf("<ENV_KEY>" to "<url>"), { DbConnectionInfo(it, jdbcUrl = "...", user = "...", password = "...") })`. JDBC URL, env var, credentials all in one place.
+3. Add the database to `SUPPORTED_MIGRATIONS` (in the same companion object) with the compatible migration tools, or an empty list for "no migration support". The supported-databases error string is auto-derived.
+4. Update the supported-types tables in `README.md` and `CLAUDE.md`.
 
 ## Adding a new migration tool
 
 1. Implement `MigrationGenerator` (interface in `generator/MigrationGenerator.kt`) — `toolName`, `generateScaffold`, `composeServiceBlock` (must include `profiles: ["migrations"]`, `restart: "no"`, and `depends_on.db.condition: service_healthy`), `createMigrationHint`.
-2. Add the tool to `LocalDevStackCli.resolveMigrationGenerator()` and to the per-database `supported` map for each compatible DB.
-3. Pin the tool image at major+minor (matching the project convention for DB images). For npm-distributed tools, generate a `Dockerfile.migrate` in `generateScaffold` and pin the package version strictly.
-4. Add a per-tool unit test in `src/test/kotlin/com/localdevstack/generator/`, plus tuples in `AllMigrationGeneratorsTest.allGenerators()` (and `sqlGenerators()` if SQL-only).
-5. Add valid/invalid `(database, tool)` rows to the `@CsvSource` matrices in `LocalDevStackCliTest`.
-6. Update the migration tools table in `README.md` and the migration generators table in `CLAUDE.md`.
+2. For SQL-based tools, reuse `identityColumnSql(databaseType)` from `MigrationSqlHelpers.kt` for the example migration's primary-key column.
+3. Add the tool to `LocalDevStackCli.resolveMigrationGenerator()` (the inner factory `when`) and to the `SUPPORTED_MIGRATIONS` map for each compatible DB.
+4. Pin the tool image at major+minor (matching the project convention for DB images). For npm-distributed tools, generate a `Dockerfile.migrate` in `generateScaffold` and pin the package version strictly.
+5. Add a per-tool unit test in `src/test/kotlin/com/localdevstack/generator/`, plus tuples in `AllMigrationGeneratorsTest.allGenerators()` (and `sqlGenerators()` if SQL-only).
+6. Add valid/invalid `(database, tool)` rows to the `@CsvSource` matrices in `LocalDevStackCliTest`.
+7. Update the migration tools table in `README.md` and the migration generators table in `CLAUDE.md`.

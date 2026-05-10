@@ -78,6 +78,18 @@ class LocalDevStackCliTest {
     }
 
     @Test
+    fun `migration tool matching is case-insensitive`() {
+        cli {
+            serviceType = "go"
+            databaseType = "postgres"
+            migrationTool = "FLYWAY"
+        }.run()
+        assertTrue(tempDir.resolve("migrations/V001__init.sql").toFile().exists(),
+            "Uppercase --migration FLYWAY should resolve to the Flyway generator")
+        assertContains(tempDir.resolve("docker-compose.yml").toFile().readText(), "flyway/flyway:10")
+    }
+
+    @Test
     fun `force flag allows overwriting non-empty output directory`() {
         // Pre-populate the output directory
         Files.createDirectories(tempDir.resolve("service"))
@@ -231,7 +243,7 @@ class LocalDevStackCliTest {
         val err = captureErr {
             cli { outputDir = "../../outside-cwd" }.run()
         }
-        assertContains(err, "within the current working directory")
+        assertContains(err, "inside the current working directory")
         assertFalse(tempDir.resolve("docker-compose.yml").toFile().exists())
     }
 

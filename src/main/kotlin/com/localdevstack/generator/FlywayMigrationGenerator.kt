@@ -40,18 +40,12 @@ class FlywayMigrationGenerator : MigrationGenerator {
     override fun createMigrationHint() =
         "To add a new migration: create a file at migrations/V<N>__<name>.sql, then run: docker-compose run --rm migrate"
 
-    private fun exampleMigration(databaseType: String): String {
-        val identityColumn = when (databaseType.lowercase()) {
-            "postgres", "cockroachdb" -> "id    SERIAL PRIMARY KEY"
-            "sqlserver"               -> "id    INT IDENTITY(1,1) PRIMARY KEY"
-            else                      -> "id    INT AUTO_INCREMENT PRIMARY KEY"
-        }
-        return """
+    private fun exampleMigration(databaseType: String): String =
+        """
             -- Example Flyway migration. Rename and edit to fit your schema.
             CREATE TABLE IF NOT EXISTS users (
-                $identityColumn,
+                ${identityColumnSql(databaseType)},
                 email VARCHAR(255) NOT NULL UNIQUE
             );
         """.trimIndent() + "\n"
-    }
 }

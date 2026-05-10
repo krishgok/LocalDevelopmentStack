@@ -53,20 +53,14 @@ class GolangMigrateMigrationGenerator : MigrationGenerator {
         else -> error("golang-migrate does not support database type: ${db.databaseType}")
     }
 
-    private fun sqlUpExample(databaseType: String): String {
-        val identityColumn = when (databaseType.lowercase()) {
-            "postgres", "cockroachdb" -> "id    SERIAL PRIMARY KEY"
-            "sqlserver"               -> "id    INT IDENTITY(1,1) PRIMARY KEY"
-            else                      -> "id    INT AUTO_INCREMENT PRIMARY KEY"
-        }
-        return """
+    private fun sqlUpExample(databaseType: String): String =
+        """
             -- Example golang-migrate up migration. Rename and edit to fit your schema.
             CREATE TABLE IF NOT EXISTS users (
-                $identityColumn,
+                ${identityColumnSql(databaseType)},
                 email VARCHAR(255) NOT NULL UNIQUE
             );
         """.trimIndent() + "\n"
-    }
 
     private fun sqlDownExample() = """
         DROP TABLE IF EXISTS users;

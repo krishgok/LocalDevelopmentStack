@@ -6,8 +6,9 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.logging.Formatter
 import java.util.logging.Handler
 import java.util.logging.Level
@@ -86,11 +87,11 @@ internal class SizeCappedFileHandler(
     @Synchronized
     override fun publish(record: LogRecord) {
         if (!isLoggable(record)) return
-        val w = writer ?: return
+        if (writer == null) return
         try {
             if (Files.size(path) >= maxBytes) openTruncating()
-            (writer ?: w).write(formatter.format(record))
-            (writer ?: w).flush()
+            writer!!.write(formatter.format(record))
+            writer!!.flush()
         } catch (_: Exception) {
             // Logging must never break the application.
         }
@@ -109,11 +110,12 @@ internal class SizeCappedFileHandler(
 }
 
 private class LineFormatter : Formatter() {
-    private val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
+    private val ts: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
 
     override fun format(record: LogRecord): String {
         val sb = StringBuilder(160)
-        sb.append(ts.format(Date(record.millis)))
+        sb.append(ts.format(Instant.ofEpochMilli(record.millis)))
             .append(' ').append(record.level.name)
             .append(' ').append(shortLogger(record.loggerName))
             .append(" - ").append(formatMessage(record))
