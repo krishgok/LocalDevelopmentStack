@@ -2,9 +2,9 @@
 
 Instantly scaffold a containerised local development environment for any service and database — with a single command.
 
-Two modes:
+Two modes — both produce a stack that comes up with a single `docker-compose up --build`:
 
-- **New service** — generates a complete runnable service + `docker-compose.yml` from scratch.
+- **New service** — generates a complete runnable service + `Dockerfile.dev` + `docker-compose.yml` from scratch. Hot-reload enabled.
 - **Existing service** — wraps your existing code with a `Dockerfile.dev` + `docker-compose.yml`. Hot-reload is enabled; source changes are picked up automatically inside the container.
 
 Optional **database migrations** — pass `--migration <tool>` (Flyway, Liquibase, migrate-mongo, golang-migrate) to scaffold an example migration plus a one-shot `migrate:` service that runs on demand via `docker-compose run --rm migrate`.
@@ -45,7 +45,7 @@ irm https://raw.githubusercontent.com/krishgok/localdevstack/main/scripts/instal
 
 ## Usage: Scaffold a new service
 
-Generates source code + `docker-compose.yml` from scratch.
+Generates source code + `Dockerfile.dev` + `docker-compose.yml` from scratch. Hot-reload is enabled — edit source files and the watcher inside the container recompiles/restarts your service automatically.
 
 **Step 1 — Generate the stack:**
 
@@ -53,27 +53,35 @@ Generates source code + `docker-compose.yml` from scratch.
 localdevstack --service go --database postgres --output ./my-project --name my-api
 ```
 
-**Step 2 — Start the database:**
+This produces:
+
+```
+my-project/
+├── service/
+│   ├── <generated source files>
+│   └── Dockerfile.dev      ← dev container for your service (hot-reload enabled)
+└── docker-compose.yml      ← your service + the database, fully wired
+```
+
+**Step 2 — Start the full local stack:**
 
 ```bash
 cd my-project
-docker-compose up -d
+docker-compose up --build
 ```
 
-**Step 3 — Start the generated service:**
+This builds the dev image on first run and starts both the database and your service. Subsequent `docker-compose up` calls skip the build.
 
-```bash
-cd service && go run ./...
-```
-
-**Step 4 — Verify:**
+**Step 3 — Verify:**
 
 ```bash
 curl http://localhost:8080/health
 # → {"status":"ok"}
 ```
 
-> The service runs directly on your host in this mode. Replace `go run ./...` with the appropriate command for your language (see [Supported service types](#supported-service-types)).
+**Step 4 — Edit, save, and see changes reload automatically:**
+
+Hot-reload works the same way as in [existing-service mode](#step-4--edit-save-and-see-changes-reload-automatically) — edit a source file under `service/`, the watcher inside the container picks it up. Only re-run `docker-compose up --build` if you change `Dockerfile.dev` itself or add/remove dependencies (e.g. `go.mod`, `package.json`, `requirements.txt`).
 
 ---
 
@@ -298,9 +306,8 @@ Pass `--migration <tool>` to scaffold migration files plus a one-shot `migrate:`
 ```bash
 localdevstack --service go --database postgres --migration flyway --output ./my-project --name my-api
 cd my-project
-docker-compose up -d                  # starts postgres only — migrate is skipped (compose profile)
-docker-compose run --rm migrate       # applies all pending migrations
-cd service && go run ./...            # start your service
+docker-compose up --build -d          # service + db (migrate skipped — compose profile)
+docker-compose run --rm migrate       # apply migrations on demand
 ```
 
 ### Existing service with migrations

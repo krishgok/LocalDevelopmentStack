@@ -106,6 +106,28 @@ class SpringBootServiceGeneratorTest {
 
     // ── Unhappy path ──────────────────────────────────────────────────────────
 
+    // Regression: Dockerfile.dev previously referenced `gradlew` and `gradle/`,
+    // which SpringBootServiceGenerator never emits. `docker-compose up --build`
+    // failed at the COPY step in new-scaffold mode. Every COPY source in the
+    // generated Dockerfile must exist in the build context (the service dir).
+    @Test
+    fun `Dockerfile dev COPY sources all exist in generated service dir`() {
+        generator.generate(tempDir, "svc")
+        val serviceDir = tempDir.resolve("service")
+        SpringBootDockerfileGenerator().generate(serviceDir, "svc")
+
+        val dockerfile = serviceDir.resolve("Dockerfile.dev").toFile().readText()
+        val copySources = Regex("""^\s*COPY\s+(.+?)\s+\S+\s*$""", RegexOption.MULTILINE)
+            .findAll(dockerfile)
+            .flatMap { it.groupValues[1].trim().split(Regex("\\s+")) }
+            .toList()
+
+        assertTrue(copySources.isNotEmpty(), "expected at least one COPY directive")
+        val missing = copySources.filterNot { serviceDir.resolve(it).toFile().exists() }
+        assertTrue(missing.isEmpty(),
+            "Dockerfile.dev COPYs files missing from the service dir: $missing")
+    }
+
     @Test
     fun `different project names produce distinct settings files`() {
         val tempDir2 = createTempDir("lds-test2")

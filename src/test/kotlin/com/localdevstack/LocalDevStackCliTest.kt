@@ -113,6 +113,40 @@ class LocalDevStackCliTest {
         assertContains(tempDir.resolve("docker-compose.yml").toFile().readText(), "  db:")
     }
 
+    @Test
+    fun `new-scaffold writes Dockerfile dev under service subdir`() {
+        cli { serviceType = "go"; databaseType = "postgres" }.run()
+        assertTrue(tempDir.resolve("service/Dockerfile.dev").toFile().exists(),
+            "Expected service/Dockerfile.dev for containerized new-scaffold output")
+    }
+
+    @Test
+    fun `new-scaffold compose includes service block with build context to service subdir`() {
+        cli {
+            serviceType = "go"
+            databaseType = "postgres"
+            projectName = "single-cmd-api"
+        }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertContains(compose, "context: ./service")
+        assertContains(compose, "dockerfile: Dockerfile.dev")
+        assertContains(compose, "  single-cmd-api:")
+    }
+
+    @Test
+    fun `new-scaffold compose mounts source from service subdir for hot-reload`() {
+        cli { serviceType = "go"; databaseType = "postgres" }.run()
+        assertContains(tempDir.resolve("docker-compose.yml").toFile().readText(), "./service:/app")
+    }
+
+    @Test
+    fun `new-scaffold node compose preserves anonymous node_modules mount`() {
+        cli { serviceType = "node"; databaseType = "postgres" }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertContains(compose, "./service:/app")
+        assertContains(compose, "/app/node_modules")
+    }
+
     @ParameterizedTest
     @CsvSource(
         "postgres,      DATABASE_URL",

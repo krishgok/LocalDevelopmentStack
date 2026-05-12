@@ -12,8 +12,6 @@ class RedisDatabaseGenerator : DatabaseGenerator {
     }
 
     private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
-        appendLine("version: '3.8'")
-        appendLine()
         appendLine("services:")
         appendLine("  db:")
         appendLine("    image: redis:7-alpine")

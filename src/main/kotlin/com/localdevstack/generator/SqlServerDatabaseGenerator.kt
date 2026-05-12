@@ -12,8 +12,6 @@ class SqlServerDatabaseGenerator : DatabaseGenerator {
     }
 
     private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
-        appendLine("version: '3.8'")
-        appendLine()
         appendLine("# WARNING: these credentials are for LOCAL DEVELOPMENT ONLY.")
         appendLine("# SQL Server requires a strong password (min 8 chars, upper+lower+digit+symbol).")
         appendLine()

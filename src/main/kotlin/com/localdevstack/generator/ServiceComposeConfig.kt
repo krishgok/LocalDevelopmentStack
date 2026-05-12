@@ -3,6 +3,7 @@ package com.localdevstack.generator
 data class ServiceComposeConfig(
     val name: String,
     val dockerfilePath: String = "Dockerfile.dev",
+    val buildContext: String = ".",
     val port: Int = 8080,
     val envVars: Map<String, String>,
     val volumes: List<String> = emptyList()
@@ -11,7 +12,7 @@ data class ServiceComposeConfig(
 fun StringBuilder.appendServiceBlock(config: ServiceComposeConfig) {
     appendLine("  ${config.name}:")
     appendLine("    build:")
-    appendLine("      context: .")
+    appendLine("      context: ${config.buildContext}")
     appendLine("      dockerfile: ${config.dockerfilePath}")
     appendLine("    container_name: local-${config.name}")
     appendLine("    ports:")

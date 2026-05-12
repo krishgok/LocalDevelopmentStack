@@ -12,8 +12,6 @@ class CockroachDbDatabaseGenerator : DatabaseGenerator {
     }
 
     private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
-        appendLine("version: '3.8'")
-        appendLine()
         appendLine("services:")
         appendLine("  db:")
         appendLine("    image: cockroachdb/cockroach:latest-v23.2")

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `LocalDevelopmentStack` is a Kotlin CLI tool that scaffolds a local development environment. It has two modes:
 
-1. **New service scaffold** — given a service type and database, generates a complete runnable service + `docker-compose.yml` from scratch.
+1. **New service scaffold** — given a service type and database, generates a complete runnable service from a template, plus `Dockerfile.dev` and `docker-compose.yml`. The whole stack (DB + service) comes up with one `docker-compose up --build`; hot-reload is enabled.
 2. **Existing service scaffold** (`--existing-dir`) — auto-detects the language in an existing directory, then generates `Dockerfile.dev` + `docker-compose.yml` so the full local stack (service + database) runs with `docker-compose up --build`. Hot-reload is enabled; source changes are picked up automatically without a rebuild.
 
 Both modes support optional database-migration scaffolding via `--migration <tool>`, which adds an opt-in one-shot `migrate:` service to the generated compose file plus an example migration in the appropriate format for the tool.
@@ -167,7 +167,7 @@ All database services are named `db:` in the compose file so connection URLs use
 
 | `--service`  | Implementation                   | Hot-reload tool                    |
 | ------------ | -------------------------------- | ---------------------------------- |
-| `springboot` | `SpringBootDockerfileGenerator`  | `./gradlew bootRun`                |
+| `springboot` | `SpringBootDockerfileGenerator`  | `gradle bootRun`                   |
 | `go`         | `GoDockerfileGenerator`          | `air` (cosmtrek/air)               |
 | `python`     | `PythonDockerfileGenerator`      | `uvicorn --reload`                 |
 | `node`       | `NodeDockerfileGenerator`        | `nodemon`                          |
@@ -238,13 +238,16 @@ Multiple distinct types → `DetectionException` with explicit `--service` overr
 
 ### Generated output structure
 
+Both modes produce a stack that comes up with a single `docker-compose up --build` — DB + service container with hot-reload via volume-mounted source. The only difference is whether the source is generated from a template (new) or pre-existing (existing-dir). New-scaffold mode passes a `ServiceComposeConfig` with `buildContext = "./service"` so the compose `build:` block points at the subdirectory; existing-dir keeps the default `buildContext = "."`.
+
 **New service scaffold:**
 ```
 <output>/
 ├── service/
-│   └── <language-specific source files>
-│       └── GET /health → {"status":"ok"}
-└── docker-compose.yml    # database only; service runs directly on host
+│   ├── <language-specific source files>
+│   │   └── GET /health → {"status":"ok"}
+│   └── Dockerfile.dev    # single-stage, hot-reload, no COPY . .
+└── docker-compose.yml    # database + your service container (volume-mounted source)
 ```
 
 **Existing service scaffold:**

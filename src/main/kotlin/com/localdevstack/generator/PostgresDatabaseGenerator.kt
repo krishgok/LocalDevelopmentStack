@@ -12,8 +12,6 @@ class PostgresDatabaseGenerator : DatabaseGenerator {
     }
 
     private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
-        appendLine("version: '3.8'")
-        appendLine()
         appendLine("# WARNING: these credentials are for LOCAL DEVELOPMENT ONLY.")
         appendLine("# Change POSTGRES_PASSWORD before committing or deploying to any shared environment.")
         appendLine()

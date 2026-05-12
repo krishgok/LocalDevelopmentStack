@@ -2,12 +2,11 @@ package com.localdevstack.generator
 
 class SpringBootDockerfileGenerator : DockerfileGenerator() {
     override fun dockerfile() = """
-        FROM eclipse-temurin:17-jdk-alpine
+        FROM gradle:8-jdk17-alpine
         WORKDIR /app
-        COPY build.gradle.kts settings.gradle.kts gradlew ./
-        COPY gradle ./gradle
-        RUN chmod +x gradlew && ./gradlew dependencies --no-daemon -q 2>/dev/null || true
+        COPY build.gradle.kts settings.gradle.kts ./
+        RUN gradle dependencies --no-daemon -q 2>/dev/null || true
         EXPOSE 8080
-        CMD ["./gradlew", "bootRun", "--no-daemon"]
+        CMD ["gradle", "bootRun", "--no-daemon"]
     """.trimIndent()
 }

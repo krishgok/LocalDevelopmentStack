@@ -12,8 +12,6 @@ class MariaDbDatabaseGenerator : DatabaseGenerator {
     }
 
     private fun dockerComposeYml(serviceConfig: ServiceComposeConfig?) = buildString {
-        appendLine("version: '3.8'")
-        appendLine()
         appendLine("# WARNING: these credentials are for LOCAL DEVELOPMENT ONLY.")
         appendLine()
         appendLine("services:")

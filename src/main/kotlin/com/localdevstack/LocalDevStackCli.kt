@@ -329,6 +329,7 @@ class LocalDevStackCli : Runnable {
         val effectiveServiceType = serviceType ?: DEFAULT_SERVICE_TYPE
 
         val serviceGenerator = resolveServiceGenerator(effectiveServiceType) ?: return
+        val dockerfileGenerator = resolveDockerfileGenerator(effectiveServiceType) ?: return
         val databaseGenerator = resolveDatabaseGenerator(databaseType) ?: return
 
         val migrationGenerator = migrationTool?.let { resolveMigrationGenerator(databaseType, it) ?: return }
@@ -354,17 +355,31 @@ class LocalDevStackCli : Runnable {
             println("WARNING: overwriting existing files in $outputPath")
         }
 
+        val resolvedPort = resolvePort()
+        val serviceDir = outputPath.resolve("service")
+        val serviceConfig = ServiceComposeConfig(
+            name = projectName,
+            dockerfilePath = "Dockerfile.dev",
+            buildContext = "./service",
+            port = resolvedPort,
+            envVars = dbEnvVars(databaseType),
+            volumes = newScaffoldVolumes(effectiveServiceType)
+        )
+
         println("Generating local development stack...")
         println("  Service  : $effectiveServiceType")
         println("  Database : $databaseType")
+        println("  Port     : $resolvedPort")
         println("  Output   : $outputPath")
         if (migrationGenerator != null) println("  Migration: ${migrationGenerator.toolName}")
         println()
 
         log.info("generating service ($effectiveServiceType) at $outputPath")
         serviceGenerator.generate(outputPath, projectName)
+        log.info("generating Dockerfile.dev at $serviceDir")
+        dockerfileGenerator.generate(serviceDir, projectName)
         log.info("generating docker-compose.yml at $outputPath")
-        databaseGenerator.generate(outputPath)
+        databaseGenerator.generate(outputPath, serviceConfig)
 
         runMigrationStage(outputPath, projectName, migrationGenerator)
 
@@ -373,13 +388,22 @@ class LocalDevStackCli : Runnable {
         println()
         println("Next steps:")
         println("  1. cd $outputDir")
-        println("  2. docker-compose up -d")
-        println("  3. cd service && ${serviceGenerator.runCommand}")
-        println("  4. curl http://localhost:8080/health")
+        println("  2. docker-compose up --build")
+        println("     ↳ Builds the dev image and starts the database and your service.")
+        println("     ↳ Hot-reload is enabled — source changes are picked up automatically.")
+        println("  3. curl http://localhost:$resolvedPort/health")
         println("     → {\"status\":\"ok\"}")
-        printMigrationTrailer(migrationGenerator, stepNumber = 5)
+        printMigrationTrailer(migrationGenerator, stepNumber = 4)
         printMultiDbTip(outputDir, databaseType)
     }
+
+    // Translate per-type volume mounts from the existing-dir layout (source at
+    // root, e.g. `.:/app`) to the new-scaffold layout (source under `service/`).
+    // Anonymous container-only mounts like `/app/node_modules` pass through.
+    private fun newScaffoldVolumes(serviceType: String): List<String> =
+        serviceVolumes(serviceType).map { v ->
+            if (v.startsWith(".:")) "./service:" + v.substringAfter(".:") else v
+        }
 
     // ── Port resolution ──────────────────────────────────────────────────────────
 

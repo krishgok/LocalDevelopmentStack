@@ -35,9 +35,19 @@ class GoDockerfileGeneratorTest {
     fun `Dockerfile dev uses air for hot reload`() {
         generator.generate(tempDir, "my-service")
         val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
-        assertContains(content, "golang:1.22-alpine")
+        assertContains(content, "golang:1.25-alpine")
         assertContains(content, "air")
         assertContains(content, "go mod download")
+    }
+
+    @Test
+    fun `air is pinned to a specific version not at latest`() {
+        generator.generate(tempDir, "my-service")
+        val content = tempDir.resolve("Dockerfile.dev").toFile().readText()
+        // air@latest silently breaks when air bumps Go-toolchain requirements
+        // (we hit this with v1.65.1 needing Go 1.25 vs the old 1.22 base image).
+        assertFalse(content.contains("air@latest"),
+            "air must be pinned (e.g. @v1.65.1), not @latest")
     }
 
     @Test
