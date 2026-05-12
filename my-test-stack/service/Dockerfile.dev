@@ -1,6 +1,0 @@
-FROM gradle:8-jdk17-alpine
-WORKDIR /app
-COPY build.gradle.kts settings.gradle.kts ./
-RUN gradle dependencies --no-daemon -q 2>/dev/null || true
-EXPOSE 8080
-CMD ["gradle", "bootRun", "--no-daemon"]
