@@ -16,12 +16,21 @@ class DotNetServiceGenerator : ServiceGenerator {
             Files.createDirectories(it)
         }
 
+        val ns = toCSharpNamespace(projectName)
         Files.writeString(serviceDir.resolve("$projectName.csproj"), csproj(projectName))
-        Files.writeString(serviceDir.resolve("Program.cs"), programCs())
-        Files.writeString(controllersDir.resolve("HealthController.cs"), healthControllerCs(projectName))
-        Files.writeString(servicesDir.resolve("HealthService.cs"), healthServiceCs(projectName))
+        Files.writeString(serviceDir.resolve("Program.cs"), programCs(ns))
+        Files.writeString(controllersDir.resolve("HealthController.cs"), healthControllerCs(ns))
+        Files.writeString(servicesDir.resolve("HealthService.cs"), healthServiceCs(ns))
 
         println("  [OK] .NET service         ->  $serviceDir")
+    }
+
+    // C# identifiers must start with a letter/underscore and contain only
+    // letters/digits/underscores. The on-disk project name often has hyphens
+    // (e.g. "my-api") so we sanitize separately for namespace use.
+    private fun toCSharpNamespace(projectName: String): String {
+        val cleaned = projectName.replace(Regex("[^A-Za-z0-9_]"), "_")
+        return if (cleaned.isEmpty() || cleaned[0].isDigit()) "_$cleaned" else cleaned
     }
 
     private fun csproj(projectName: String) = """
@@ -35,21 +44,23 @@ class DotNetServiceGenerator : ServiceGenerator {
         </Project>
     """.trimIndent()
 
-    private fun programCs() = """
+    private fun programCs(ns: String) = """
+        using $ns.Services;
+
         var builder = WebApplication.CreateBuilder(args);
         builder.Services.AddControllers();
-        builder.Services.AddScoped<Services.HealthService>();
+        builder.Services.AddScoped<HealthService>();
 
         var app = builder.Build();
         app.MapControllers();
         app.Run("http://0.0.0.0:8080");
     """.trimIndent()
 
-    private fun healthControllerCs(projectName: String) = """
+    private fun healthControllerCs(ns: String) = """
         using Microsoft.AspNetCore.Mvc;
-        using $projectName.Services;
+        using $ns.Services;
 
-        namespace $projectName.Controllers;
+        namespace $ns.Controllers;
 
         [ApiController]
         [Route("[controller]")]
@@ -67,8 +78,8 @@ class DotNetServiceGenerator : ServiceGenerator {
         }
     """.trimIndent()
 
-    private fun healthServiceCs(projectName: String) = """
-        namespace $projectName.Services;
+    private fun healthServiceCs(ns: String) = """
+        namespace $ns.Services;
 
         public class HealthService
         {

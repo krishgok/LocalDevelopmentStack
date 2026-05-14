@@ -39,7 +39,7 @@ class AllDockerfileGeneratorsTest {
             arrayOf("dotnet",     DotNetDockerfileGenerator(),     "watch",          ".csproj"),
             arrayOf("java",       JavaDockerfileGenerator(),       "spring-boot:run","pom.xml"),
             arrayOf("php",        PhpDockerfileGenerator(),        "php",            "composer"),
-            arrayOf("ruby",       RubyDockerfileGenerator(),       "rails",          "Gemfile"),
+            arrayOf("ruby",       RubyDockerfileGenerator(),       "app.rb",         "Gemfile"),
         )
     }
 

@@ -141,6 +141,18 @@ LocalDevelopmentStack/          ← private source repo
 3. Add **one entry** to the `SERVICES` map in `LocalDevStackCli`'s companion object: `"<type>" to ServiceSpec(::YourServiceGenerator, ::YourDockerfileGenerator, listOf(".:/app", ...))`.
 4. Add parameterized rows in `AllServiceGeneratorsTest` and `AllDockerfileGeneratorsTest`.
 5. Update the supported-types tables in `README.md` and `CLAUDE.md`.
+6. Run the integration sweep against your new service × all 8 databases before merging (see "Integration sweep" below).
+
+### Dockerfile gotchas to consider for a new service
+
+Patterns the 72-combo integration sweep surfaced repeatedly — check each before you submit:
+
+- **Native deps in the chosen runtime.** If your service installs gems / pip wheels / npm packages with C extensions, the slim variant of the base image probably lacks `build-essential`. Either pick the full image (e.g. `ruby:3.2` not `ruby:3.2-slim`) or `apt-get install build-essential` — but the latter adds minutes to the first build on a cold network. Full image is usually the right tradeoff for dev.
+- **Hot-reload tooling install cost.** If the hot-reload tool installs from source (`cargo install`, `go install`, source-compiled), the first build can blow past any reasonable timeout. Prefer a pinned pre-built binary from a GitHub release.
+- **Database driver build deps.** A single image is used against all 8 databases, so any database-specific extension (e.g. `pdo_pgsql`) needs its build-time deps unconditionally even when the user's DB choice doesn't need them at runtime.
+- **Project-name sanitization.** If `projectName` is interpolated anywhere strict (C# namespaces, Go module paths, Rust crate names, Java packages), sanitize it explicitly — picocli accepts hyphens.
+- **Lockfile assumptions.** If your service template doesn't write a lockfile, the Dockerfile must use the package manager's lock-optional install (`npm install`, not `npm ci`; `bundle install` without `--frozen`).
+- **Framework weight.** The whole point is "single `docker compose up` boots a healthy `/health`." Heavy frameworks (Laravel, Rails) need a `composer install` / `bundle install` that fights this. We've deliberately picked minimal frameworks for PHP (built-in `php -S`) and Ruby (Sinatra) — don't upgrade these without re-running the sweep.
 
 ## Adding a new database type
 
@@ -158,3 +170,43 @@ LocalDevelopmentStack/          ← private source repo
 5. Add a per-tool unit test in `src/test/kotlin/com/localdevstack/generator/`, plus tuples in `AllMigrationGeneratorsTest.allGenerators()` (and `sqlGenerators()` if SQL-only).
 6. Add valid/invalid `(database, tool)` rows to the `@CsvSource` matrices in `LocalDevStackCliTest`.
 7. Update the migration tools table in `README.md` and the migration generators table in `CLAUDE.md`.
+
+---
+
+## Integration sweep (`claude-test-sweep.sh`)
+
+Unit tests cover generator output structure; they do not verify that a generated stack actually runs. The integration sweep covers that gap.
+
+`claude-test-sweep.sh` iterates every `(--service, --database)` pair (9 × 8 = 72 combos), generates each into `claude-test-stack-v*/`, runs `docker compose up -d --build`, polls `http://localhost:8080/health` until a 200, records the result to `claude-test-results.tsv`, then tears down. It is **not** wired into CI — Docker images alone are ~10 GB and a cold sweep is ~2 hours — but run it locally before merging anything that touches a `*ServiceGenerator`, `*DockerfileGenerator`, or `*DatabaseGenerator`.
+
+**Prerequisites:** Docker Desktop running, and a fresh fat JAR at `build/libs/LocalDevelopmentStack-<version>.jar` matching the hard-coded path in the script.
+
+```bash
+# Full 72-combo sweep (rebuild JAR first to pick up any generator changes)
+gradle shadowJar && bash claude-test-sweep.sh
+
+# Scoped re-runs (resume logic skips combos already in claude-test-results.tsv)
+SVC_FILTER=ruby bash claude-test-sweep.sh                    # one service, all 8 DBs
+SVC_FILTER=ruby DB_FILTER=postgres bash claude-test-sweep.sh # single combo
+
+# Force a full re-sweep
+rm claude-test-results.tsv && bash claude-test-sweep.sh
+```
+
+The sweep is long-running (cold first run ~2 hours; warm re-runs ~30 min). Detach it from your shell if you need the terminal back: `nohup bash claude-test-sweep.sh > sweep.out 2>&1 &` then `tail -F claude-test-results.tsv` to follow progress.
+
+Resume logic: `claude-test-results.tsv` is append-only and the script skips any combo already recorded. To re-run a failing combo, delete its row first. To force a full re-sweep, delete the file (the header is regenerated). The append behaviour is how `SVC_FILTER` / `DB_FILTER` reruns add to the same results table without clobbering prior passes.
+
+Per-combo logs land in `claude-test-logs/{svc}_{db}-up.log` (compose build + container logs). The harness keeps these around after pass/fail; nuke the directory when you're done.
+
+`STACK_DIR` is bumped (v2 → v3 → ...) whenever Docker Desktop locks the folder mid-sweep and won't release it; the simplest workaround is to use a fresh folder name rather than fight the lock. The artifacts (`claude-test-stack-v*/`, `claude-test-results.tsv`, `claude-test-logs/`, `sweep.out`) are gitignored intentionally.
+
+Per-combo budget is `TIMEOUT=900` seconds. The first build of a service tier (cold cargo / cold Maven / cold composer) eats most of that; subsequent combos in the same tier reuse Docker layer cache and finish in ~30-60s.
+
+### Last full-sweep status
+
+Update this table whenever you run a full sweep (drop the row, add a new one). It's the durable answer to "does end-to-end still work?" — the per-combo logs themselves aren't worth committing.
+
+| Date       | JAR version | Result      | Notes                                                            |
+|------------|-------------|-------------|------------------------------------------------------------------|
+| 2026-05-14 | 1.1.0       | 72/72 PASS  | 9 services × 8 databases, all `/health` 200. Host: Windows 11.   |

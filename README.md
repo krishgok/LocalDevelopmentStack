@@ -130,7 +130,7 @@ Hot-reload is enabled — there is no need to run `docker-compose up --build` ag
 | Go         | [`air`](https://github.com/air-verse/air) (file watcher + incremental rebuild) |
 | Node.js    | [`nodemon`](https://nodemon.io)                    |
 | Python     | `uvicorn --reload`                                 |
-| Ruby       | Rails dev server (auto-reloads in development)     |
+| Ruby       | Rails dev server (auto-reloads) if `bin/rails` or `config/application.rb` exists; otherwise `bundle exec ruby app.rb` (Sinatra) |
 | PHP        | PHP built-in server (serves files on request)      |
 | Spring Boot| `./gradlew bootRun`                                |
 | Java       | `mvn spring-boot:run`                              |
@@ -160,8 +160,8 @@ LocalDevelopmentStack does not add or modify any endpoints in your service.
 | `rust`       | Rust + Axum                 | `Cargo.toml`                  | 8080         |
 | `dotnet`     | C# + ASP.NET Core 8         | `*.csproj`, `Program.cs`      | 8080         |
 | `java`       | Java 21 + Spring Boot (Maven) | `pom.xml`                   | 8080         |
-| `php`        | PHP 8.2 + Laravel 11        | `composer.json`               | 8080         |
-| `ruby`       | Ruby 3.2 + Rails 7          | `Gemfile`                     | 8080         |
+| `php`        | PHP 8.2 + built-in server   | `composer.json`               | 8080         |
+| `ruby`       | Ruby 3.2 + Sinatra 4        | `Gemfile`                     | 8080         |
 
 The port auto-selects 8080 → 8081 → 8082 if lower ports are occupied. Pass `--port` to set it explicitly.
 

@@ -9,11 +9,17 @@ abstract class DockerfileGenerator {
     @Suppress("UNUSED_PARAMETER")
     fun generate(serviceDir: Path, projectName: String) {
         val target = resolveTarget(serviceDir)
-        Files.writeString(target, dockerfile())
+        Files.writeString(target, dockerfile(serviceDir))
         println("  [OK] Dockerfile.dev       ->  $target")
     }
 
-    protected abstract fun dockerfile(): String
+    // Subclasses override exactly one:
+    //  - dockerfile() — content is fixed, doesn't depend on what exists in serviceDir (8 of 9)
+    //  - dockerfile(serviceDir) — content varies based on existing files in serviceDir
+    //    (Ruby: Rails vs Sinatra detection in existing-dir mode)
+    protected open fun dockerfile(serviceDir: Path): String = dockerfile()
+    protected open fun dockerfile(): String =
+        error("DockerfileGenerator subclass must override dockerfile() or dockerfile(serviceDir).")
 
     private fun resolveTarget(serviceDir: Path): Path {
         val existing = serviceDir.resolve("Dockerfile")

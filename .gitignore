@@ -31,3 +31,10 @@ logs/
 
 # ===== tmp =====
 tmp/
+
+# ===== Integration sweep artifacts (claude-test-sweep.sh) =====
+claude-test-stack*/
+claude-test-results.tsv
+claude-test-logs/
+sweep*.out
+my-test-stack/

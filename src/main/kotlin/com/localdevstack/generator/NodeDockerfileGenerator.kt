@@ -6,7 +6,7 @@ class NodeDockerfileGenerator : DockerfileGenerator() {
         RUN npm install -g nodemon
         WORKDIR /app
         COPY package*.json ./
-        RUN npm ci
+        RUN npm install
         EXPOSE 8080
         CMD ["nodemon", "index.js"]
     """.trimIndent()

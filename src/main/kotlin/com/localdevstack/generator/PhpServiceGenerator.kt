@@ -5,69 +5,48 @@ import java.nio.file.Path
 
 class PhpServiceGenerator : ServiceGenerator {
 
-    override val runCommand = "composer install && php artisan serve --host=0.0.0.0 --port=8080"
+    override val runCommand = "php -S 0.0.0.0:8080 -t public"
 
     override fun generate(outputDir: Path, projectName: String) {
         val serviceDir = outputDir.resolve("service")
-        val routesDir = serviceDir.resolve("routes")
+        val publicDir = serviceDir.resolve("public")
         val appDir = serviceDir.resolve("app/Services")
 
-        listOf(serviceDir, routesDir, appDir).forEach {
+        listOf(serviceDir, publicDir, appDir).forEach {
             Files.createDirectories(it)
         }
 
         Files.writeString(serviceDir.resolve("composer.json"), composerJson(projectName))
-        Files.writeString(serviceDir.resolve(".env.example"), envExample())
-        Files.writeString(routesDir.resolve("api.php"), routesApiPhp())
+        Files.writeString(publicDir.resolve("index.php"), indexPhp())
         Files.writeString(appDir.resolve("HealthService.php"), healthServicePhp())
 
-        println("  [OK] PHP (Laravel) service ->  $serviceDir")
+        println("  [OK] PHP service          ->  $serviceDir")
     }
 
     private fun composerJson(projectName: String) = """
         {
           "name": "example/$projectName",
           "require": {
-            "php": "^8.2",
-            "laravel/framework": "^11.0"
+            "php": "^8.2"
           },
           "autoload": {
             "psr-4": { "App\\": "app/" }
-          },
-          "scripts": {
-            "post-autoload-dump": [
-              "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
-              "@php artisan package:discover --ansi"
-            ]
           }
         }
     """.trimIndent()
 
-    private fun envExample() = """
-        APP_NAME=${'$'}{projectName}
-        APP_ENV=local
-        APP_KEY=
-        APP_DEBUG=true
-        APP_URL=http://localhost:8080
-
-        DB_CONNECTION=pgsql
-        DB_HOST=db
-        DB_PORT=5432
-        DB_DATABASE=app_db
-        DB_USERNAME=postgres
-        DB_PASSWORD=postgres_dev_only
-    """.trimIndent()
-
-    private fun routesApiPhp() = """
+    private fun indexPhp() = """
         <?php
+        require __DIR__ . '/../app/Services/HealthService.php';
 
-        use Illuminate\Support\Facades\Route;
-        use App\Services\HealthService;
-
-        Route::get('/health', function () {
-            ${'$'}healthService = new HealthService();
-            return response()->json(['status' => ${'$'}healthService->status()]);
-        });
+        ${'$'}path = parse_url(${'$'}_SERVER['REQUEST_URI'], PHP_URL_PATH);
+        if (${'$'}path === '/health') {
+            header('Content-Type: application/json');
+            echo json_encode(['status' => (new App\Services\HealthService())->status()]);
+            return;
+        }
+        http_response_code(404);
+        echo json_encode(['error' => 'not found']);
     """.trimIndent()
 
     private fun healthServicePhp() = """

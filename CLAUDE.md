@@ -127,7 +127,7 @@ The tool is structured around four generator types:
 
 - **`ServiceGenerator`** (interface) — generates a complete new service project (new scaffold mode only)
 - **`DatabaseGenerator`** (interface) — generates `docker-compose.yml` with the chosen database; optionally includes a service container block when a `ServiceComposeConfig` is provided. **Output contract:** the file must end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` can find its insertion point. Documented in the `DatabaseGenerator` KDoc.
-- **`DockerfileGenerator`** (**abstract class**, not interface) — generates `Dockerfile.dev` for an existing service (existing-dir mode only). The shared `generate()` and `Dockerfile`-already-exists warning live in the base class; subclasses only override `protected abstract fun dockerfile(): String` and are ~12 lines each. Always single-stage with hot-reload tooling, never copies source (source is volume-mounted).
+- **`DockerfileGenerator`** (**abstract class**, not interface) — generates `Dockerfile.dev` for an existing service (existing-dir mode only). The shared `generate()` and `Dockerfile`-already-exists warning live in the base class; subclasses override exactly one of two hooks. **(a) `protected open fun dockerfile(): String`** — the common case, used by 8 of 9 generators where the Dockerfile content is fixed; each subclass is ~12 lines. **(b) `protected open fun dockerfile(serviceDir: Path): String`** — used when the Dockerfile content depends on what exists in the target directory; currently only `RubyDockerfileGenerator` (Rails vs. Sinatra detection). The base class delegates `(serviceDir)` to `()` by default. Always single-stage with hot-reload tooling, never copies source (source is volume-mounted).
 - **`MigrationGenerator`** (interface) — generates migration scaffolding (example migration files, configs, optional `Dockerfile.migrate`) and a `migrate:` compose service block. Activated by `--migration <tool>`. Defaults to off.
 
 `LocalDevStackCli` (picocli `@Command`) dispatches via two **registry maps in its companion object** — `SERVICES: Map<String, ServiceSpec>` and `DATABASES: Map<String, DbSpec>` — not parallel `when` blocks. Each entry bundles all per-type knowledge (factory functions, volumes/env-vars, connection info), so adding a new type is one map entry rather than edits across five resolvers. The companion object also holds `DEFAULT_PROJECT_NAME`, `DEFAULT_DATABASE`, `DEFAULT_SERVICE_TYPE`, `DEFAULT_OUTPUT_DIR`, `PORT_CANDIDATES`, `DOCKER_PROBE_TIMEOUT_SECONDS`, and the `SUPPORTED_MIGRATIONS` compatibility map — refer to these constants rather than hand-writing literals. `Main.kt` is the entry point.
@@ -143,8 +143,8 @@ The tool is structured around four generator types:
 | `rust`       | `RustServiceGenerator`       | Rust + Axum, Cargo             |
 | `dotnet`     | `DotNetServiceGenerator`     | C# + ASP.NET Core 8            |
 | `java`       | `JavaServiceGenerator`       | Java 21 + Spring Boot, Maven   |
-| `php`        | `PhpServiceGenerator`        | PHP 8.2 + Laravel 11           |
-| `ruby`       | `RubyServiceGenerator`       | Ruby 3.2 + Rails 7             |
+| `php`        | `PhpServiceGenerator`        | PHP 8.2 + built-in server      |
+| `ruby`       | `RubyServiceGenerator`       | Ruby 3.2 + Sinatra 4           |
 
 All generated services expose `GET /health` → `{"status":"ok"}`.
 
@@ -175,9 +175,22 @@ All database services are named `db:` in the compose file so connection URLs use
 | `dotnet`     | `DotNetDockerfileGenerator`      | `dotnet watch run`                 |
 | `java`       | `JavaDockerfileGenerator`        | `mvn spring-boot:run`              |
 | `php`        | `PhpDockerfileGenerator`         | PHP built-in server (serves files on request) |
-| `ruby`       | `RubyDockerfileGenerator`        | Rails dev server (auto-reloads)    |
+| `ruby`       | `RubyDockerfileGenerator`        | Rails dev server if `bin/rails` or `config/application.rb` is present; else Sinatra (`ruby app.rb`) |
 
 `Dockerfile.dev` is always single-stage. Source code is **never** copied (`COPY . .` is absent); it is volume-mounted at runtime via the compose `volumes:` block.
+
+#### Per-service Dockerfile constraints (don't drift from these)
+
+Confirmed by a 72-combo `docker compose up --build`-and-curl-/health sweep (one combo per service × database). The constraints below caused real failures in that sweep and the fixes are now baked into the generators — reverting any of them re-introduces the failure.
+
+- **ruby: `FROM ruby:3.2`, not `ruby:3.2-slim`.** Puma pulls `nio4r`, which has a C extension; slim lacks `build-essential`. Adding `apt-get install build-essential` works but the first-build apt-get on a slow Debian mirror exceeded a 15-min budget. Full image has the build chain preinstalled.
+- **ruby: Rails vs Sinatra is detected from the existing-dir contents, not from a flag.** `RubyDockerfileGenerator` checks `bin/rails` or `config/application.rb` and emits `bundle exec rails server -b 0.0.0.0 -p 8080` for Rails apps, `bundle exec ruby app.rb` for everything else (including the new-service scaffold, which is Sinatra). Don't collapse the two — `ruby app.rb` won't start a Rails app and `rails server` won't start a Sinatra app.
+- **rust: pre-built `cargo-watch` tarball from GitHub releases, pinned at `v8.5.2`.** `cargo install cargo-watch` compiles from source for ~12 min on a cold build, well past any reasonable timeout. v8.5.3+ pulls `toml_datetime` crates that require `edition2024` (Rust 1.85+), incompatible with our `rust:1.75-slim` base.
+- **php: Dockerfile installs `libpq-dev` even when the target DB isn't Postgres.** `pdo_pgsql` is compiled in unconditionally so a single image works across all 8 supported databases; `libpq-dev` is required at build time for the compile to succeed, and `libpq` (runtime) is kept at runtime.
+- **node: `npm install`, not `npm ci`.** `NodeServiceGenerator` doesn't write a `package-lock.json`, so `npm ci` (which requires one) fails. The Dockerfile copies `package*.json` so the lock file is picked up if a user later commits one — `install` works in both cases.
+- **dotnet: `projectName` is sanitized via `toCSharpNamespace()`** before being interpolated into `Program.cs` / controllers. C# namespaces forbid hyphens (and identifiers can't start with a digit), so e.g. `--name my-api` becomes namespace `my_api`. The `.csproj` filename keeps the original hyphenated form.
+- **php / ruby use minimal frameworks deliberately.** PHP uses the built-in CLI server (`php -S`) with a tiny `public/index.php` router; Ruby uses Sinatra + Puma. Laravel / Rails scaffolds were tried and dropped — both required heavy `composer install` / `bundle install` for native deps and broke the "single `docker compose up` boots a healthy `/health`" invariant under reasonable timeouts. Don't "upgrade" these to full frameworks without re-running the sweep.
+- **SQL Server healthcheck uses `/opt/mssql-tools18/bin/sqlcmd`.** `mcr.microsoft.com/mssql/server:2022-latest` moved the tools to `mssql-tools18/`; the old `mssql-tools/` path returns "command not found" and the healthcheck never goes Healthy, blocking `depends_on: condition: service_healthy`. The `-C` flag (trust server cert) is required because the 2022 image ships a self-signed cert by default.
 
 ### Migration generators (4 tools)
 
