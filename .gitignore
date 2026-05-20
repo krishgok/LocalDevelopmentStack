@@ -35,6 +35,11 @@ tmp/
 # ===== Integration sweep artifacts (claude-test-sweep.sh) =====
 claude-test-stack*/
 claude-test-results.tsv
+claude-test-results-companions.tsv
 claude-test-logs/
 sweep*.out
 my-test-stack/
+
+# ===== Smoke-test scratch directories =====
+smoke-test/
+smoke-v*/

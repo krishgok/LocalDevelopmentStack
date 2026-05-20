@@ -1,0 +1,10 @@
+# Maintainer-only paths that must not appear in the public mirror repo
+# (see MAINTAINING.md → "Repository model").
+#
+# `export-ignore` filters these out of `git archive` source tarballs.
+# It does NOT filter `git push`, so the actual mirror sync uses
+# `git filter-repo --invert-paths` — see MAINTAINING.md for the command.
+
+CLAUDE.md                   export-ignore
+MAINTAINING.md              export-ignore
+gen-build-deploy-tests/     export-ignore

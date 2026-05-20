@@ -123,14 +123,17 @@ gradle test --tests "com.localdevstack.LocalDevStackCliTest.removing migration t
 
 ## Architecture
 
-The tool is structured around four generator types:
+The tool is structured around five generator types:
 
 - **`ServiceGenerator`** (interface) — generates a complete new service project (new scaffold mode only)
-- **`DatabaseGenerator`** (interface) — generates `docker-compose.yml` with the chosen database; optionally includes a service container block when a `ServiceComposeConfig` is provided. **Output contract:** the file must end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` can find its insertion point. Documented in the `DatabaseGenerator` KDoc.
+- **`DatabaseGenerator`** (interface) — generates `docker-compose.yml` with the chosen database; optionally includes a service container block when a `ServiceComposeConfig` is provided. **Output contract:** the file must end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` and `appendCompanionBlocksToCompose` can find their insertion point. Documented in the `DatabaseGenerator` KDoc.
 - **`DockerfileGenerator`** (**abstract class**, not interface) — generates `Dockerfile.dev` for an existing service (existing-dir mode only). The shared `generate()` and `Dockerfile`-already-exists warning live in the base class; subclasses override exactly one of two hooks. **(a) `protected open fun dockerfile(): String`** — the common case, used by 8 of 9 generators where the Dockerfile content is fixed; each subclass is ~12 lines. **(b) `protected open fun dockerfile(serviceDir: Path): String`** — used when the Dockerfile content depends on what exists in the target directory; currently only `RubyDockerfileGenerator` (Rails vs. Sinatra detection). The base class delegates `(serviceDir)` to `()` by default. Always single-stage with hot-reload tooling, never copies source (source is volume-mounted).
 - **`MigrationGenerator`** (interface) — generates migration scaffolding (example migration files, configs, optional `Dockerfile.migrate`) and a `migrate:` compose service block. Activated by `--migration <tool>`. Defaults to off.
+- **`CompanionGenerator`** (interface) — generates an opt-in companion service (currently `mailhog`, `minio`) plus environment-variable overlays for the user's service and optional named volumes. Activated by `--with <name>[,<name>...]`. Defaults to off.
 
-`LocalDevStackCli` (picocli `@Command`) dispatches via two **registry maps in its companion object** — `SERVICES: Map<String, ServiceSpec>` and `DATABASES: Map<String, DbSpec>` — not parallel `when` blocks. Each entry bundles all per-type knowledge (factory functions, volumes/env-vars, connection info), so adding a new type is one map entry rather than edits across five resolvers. The companion object also holds `DEFAULT_PROJECT_NAME`, `DEFAULT_DATABASE`, `DEFAULT_SERVICE_TYPE`, `DEFAULT_OUTPUT_DIR`, `PORT_CANDIDATES`, `DOCKER_PROBE_TIMEOUT_SECONDS`, and the `SUPPORTED_MIGRATIONS` compatibility map — refer to these constants rather than hand-writing literals. `Main.kt` is the entry point.
+Two small file-only generators run alongside these in every invocation: `EnvFileGenerator` writes `.env` + `.env.example`, and `GitignoreGenerator` writes (or idempotently appends to) `.gitignore`. They do not have a registry map because there's no per-language variation.
+
+`LocalDevStackCli` (picocli `@Command`) dispatches via three **registry maps in its companion object** — `SERVICES: Map<String, ServiceSpec>`, `DATABASES: Map<String, DbSpec>`, and `COMPANIONS: Map<String, CompanionSpec>` — not parallel `when` blocks. Each entry bundles all per-type knowledge (factory functions, volumes/env-vars, connection info), so adding a new type is one map entry rather than edits across five resolvers. The companion object also holds `DEFAULT_PROJECT_NAME`, `DEFAULT_DATABASE`, `DEFAULT_SERVICE_TYPE`, `DEFAULT_OUTPUT_DIR`, `PORT_CANDIDATES`, `DOCKER_PROBE_TIMEOUT_SECONDS`, and the `SUPPORTED_MIGRATIONS` compatibility map — refer to these constants rather than hand-writing literals. `Main.kt` is the entry point.
 
 ### Service generators (9 types)
 
@@ -213,6 +216,59 @@ Compatibility validation is centralized in `LocalDevStackCli.resolveMigrationGen
 - **Pinning.** All migration tool images are pinned at major+minor (matching project convention for DB images). The migrate-mongo npm package is strictly version-pinned.
 - **Connection retries.** Tools that support it include retry flags (e.g. Flyway `-connectRetries=60`). Healthchecks can fire mid-init; never rely on `service_healthy` alone.
 
+### Companion services (2 entries)
+
+| `--with`  | Implementation                  | Image                                     | Ports        | Env vars injected into user service       | Named volumes |
+| --------- | ------------------------------- | ----------------------------------------- | ------------ | ----------------------------------------- | ------------- |
+| `mailhog` | `MailhogCompanionGenerator`     | `mailhog/mailhog:v1.0.1`                  | 1025, 8025   | `SMTP_HOST`, `SMTP_PORT`                  | (none)        |
+| `minio`   | `MinioCompanionGenerator`       | `minio/minio:RELEASE.2024-12-18T13-15-44Z`| 9000, 9001   | `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | `minio_data` |
+
+#### Companion architecture decisions (don't drift from these)
+
+- **Post-processing, not interface change.** `CompanionGenerator.composeServiceBlock()` returns a YAML snippet; `appendCompanionBlocksToCompose()` (in `CompanionComposeAppender.kt`) splits the DB-written compose on `\nvolumes:\n` and inserts each block above. Named volumes declared via `CompanionGenerator.namedVolumes()` are appended inside the existing `volumes:` mapping after the DB's `<name>_data:` entry. `DatabaseGenerator` and all 8 DB implementations remain untouched. **Default mode (no `--with`) must produce byte-identical compose output** — there is a parameterized regression test (`CompanionComposeAppenderTest`) covering every DB.
+- **Env overlay is merged in the CLI, not in the DB generator.** `LocalDevStackCli.mergedEnvVars(databaseType, companionGenerators)` returns the union of `dbEnvVars()` and each companion's `envOverlay()` before building the `ServiceComposeConfig`. The compose `environment:` block lists keys; `EnvFileGenerator` writes the resolved values into `.env`.
+- **`--with` is the dispatch flag, `COMPANIONS` is the registry.** Same pattern as `SERVICES` / `DATABASES`. Adding a companion is one map entry; the supported-list error message is auto-derived from `COMPANIONS.keys`.
+- **Name collision protection.** When companions are active, `validateNameForCompanions()` rejects `--name mailhog` / `--name minio` (would collide with the companion's compose service name). Same pattern as the migrate/db rejection.
+- **Per-companion volume contract extension.** The DB-output contract `\nvolumes:\n  <name>_data:` is unchanged — companion volumes are appended *inside* the existing `volumes:` mapping, not as a new section. `MinioCompanionGenerator` is the only companion with a named volume today; future companions should follow the same pattern.
+- **Env overlay precedence is companion-wins, with a warning.** `mergedEnvVars` logs a WARNING when a companion's `envOverlay()` key collides with the DB's env var (none today; reserved for future companions). Don't silently shadow without the log.
+
+#### Per-companion constraints (don't drift from these)
+
+Confirmed by the 19-combo extended sweep (9 services × `--with mailhog` + 9 × `--with minio` + 1 omnibus). Same lifetime promise as the per-service Dockerfile constraints: reverting any of these re-introduces a real failure.
+
+- **mailhog healthcheck must use `wget --spider`, not `/dev/tcp/...`.** The `mailhog/mailhog:v1.0.1` image is built `FROM golang:alpine`; the shell is busybox `ash`, which does NOT implement `/dev/tcp`. The previously-tried `["CMD", "sh", "-c", "echo > /dev/tcp/localhost/1025"]` form left the container reported `unhealthy` indefinitely. The fix: `["CMD-SHELL", "wget -q --spider http://localhost:8025/ || exit 1"]` — wget is in busybox and the HTTP UI port is the most reliable probe.
+- **minio healthcheck uses `/minio/health/live`, not `/health`.** That's MinIO's documented liveness endpoint for the `RELEASE.2024-12-18T13-15-44Z` image. `curl` is present in the MinIO image since the 2023 releases.
+- **MinIO root credentials are baked into the compose YAML, not `.env`-interpolated.** Same pattern as `POSTGRES_PASSWORD`/`SA_PASSWORD` for DB generators: infrastructure-service credentials are inline, only the user-service env vars go through `.env`. Don't refactor MinIO to read from `.env` — it would diverge from the DB-generator convention without benefit.
+
+#### Compose interpolation + `.env` flow
+
+- `ServiceComposeConfig.appendServiceBlock()` writes each environment entry as `- $KEY=\${$KEY}` (compose-time substitution), never as the literal value. The resolved values live in `.env` next to the compose file.
+- `EnvFileGenerator.generate(outputDir, envVars)` writes both `.env` (with resolved values) and `.env.example` (with `<change-me>` placeholders). Both files are emitted in every invocation; `.env` is added to `.gitignore`.
+- **`.env` values are quoted when they contain shell-sensitive characters.** `EnvFileGenerator.quoteEnvValue()` wraps values containing any of `' \t#"'\!` in `"…"` with backslash-escapes. Reason: a user who runs `source .env` in bash would otherwise hit history expansion on `!` (SQL Server's `DevOnly_123!` password) or word-splitting on spaces. Common URLs (postgres / mongo / redis) stay unquoted because they contain none of these. Docker Compose's dotenv parser is fine either way.
+- `GitignoreGenerator.generate(outputDir)` writes a fresh `.gitignore` (containing `.env` + `*.local`) in new-scaffold mode; in existing-dir mode it appends just `.env` if missing and leaves user rules intact. The check is idempotent — repeated runs do not duplicate the entry.
+
+#### Service healthcheck stanza
+
+Every service block emitted by `appendServiceBlock()` now includes a healthcheck stanza:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "wget -q -O- http://localhost:<port>/health || curl -fsS http://localhost:<port>/health || exit 1"]
+  interval: 10s
+  timeout: 3s
+  retries: 6
+  start_period: 60s
+```
+
+The wget-then-curl fallback covers every base image used by the 9 service generators (alpine busybox provides wget; slim/SDK debian images ship curl). `start_period: 60s` accommodates Spring Boot / .NET startup. This enables `depends_on: service_healthy` from companions or downstream containers.
+
+#### Dry-run
+
+`--dry-run` returns early after planning, before any generator is invoked. It prints the resolved plan plus a list of files that would be written, computed from the CLI's own knowledge — no `FileWriter` abstraction or generator changes were introduced for this. The dry-run path is exercised by parameterized tests asserting zero files in `tempDir` for every service × DB combo.
+
+- **`--dry-run` also skips the Docker availability probe** (`run()` short-circuits `checkDockerAvailable()` when `dryRun` is set). Reason: dry-run is the documented "preview without writing" mode and must work on hosts where Docker is unavailable (CI runners that only validate generation, doc-build machines). Keep this skip — don't reinstate the probe.
+- The migration scaffold file list in `printDryRunPlan()` is hardcoded by `MigrationGenerator.toolName` (`flyway` → `V001__init.sql`, `liquibase` → `db/changelog/db.changelog-master.sql`, etc.). Acceptable drift risk per the senior code review: if a future migration generator adds a second scaffold file, the dry-run list will silently omit it — add the new file to the `when` branch in `printDryRunPlan` whenever you change scaffold output.
+
 ### Logging (`Logging.kt`)
 
 `Main.kt` calls `Logging.init()` once at startup; `LocalDevStackCli` calls `Logging.named("LocalDevStackCli").info(...)` at decision points. Why `java.util.logging` and not Logback/SLF4J: zero new runtime deps and no `--initialize-at-build-time` / reflect-config entries needed for `gradle nativeCompile`.
@@ -282,6 +338,19 @@ Both modes produce a stack that comes up with a single `docker-compose up --buil
 └── docker-compose.yml                # +migrate: service (profiles: ["migrations"])
 ```
 
+**Always emitted** (in every invocation, both modes):
+```
+├── .env                              # resolved env vars (gitignored)
+├── .env.example                      # placeholder env vars (safe to commit)
+└── .gitignore                        # fresh in new-scaffold; appended in existing-dir
+```
+
+**With `--with <companion>[,<name>...]`** (added on top of either mode above):
+```
+└── docker-compose.yml                # +mailhog: and/or +minio: service blocks
+                                      # (named volume `minio_data:` added when minio is used)
+```
+
 ### Adding a new service type
 
 1. Implement `ServiceGenerator` (include `override val runCommand`).
@@ -295,6 +364,13 @@ Both modes produce a stack that comes up with a single `docker-compose up --buil
 2. Add **one entry** to `DATABASES` in the companion object: `"<type>" to DbSpec(::YourDatabaseGenerator, mapOf("<ENV_KEY>" to "<url>"), { DbConnectionInfo(it, jdbcUrl = "...", user = "...", password = "...") })`. JDBC URL, env var, and credentials all live in this single entry — there is no separate `dbEnvVars`/`dbConnectionInfo` `when` block to update.
 3. Add the new DB to `SUPPORTED_MIGRATIONS` (with the compatible tools list, or empty list for "no migration support"). The "supported migration databases" error string is auto-derived from this map.
 4. **Compose-YAML `$$` escape.** docker-compose treats `$VAR` and `${VAR}` as compose-time substitution and `$$VAR` / `$${VAR}` as a literal pass-through to the container shell. In Kotlin source the literal `$` must itself be escaped, so a healthcheck that wants the container's shell to read `$SA_PASSWORD` writes `\$\$SA_PASSWORD` in the generator string (see `SqlServerDatabaseGenerator`). A single `\$` followed by `${...}` is a Kotlin string-template parse error.
+
+### Adding a new companion type
+
+1. Implement `CompanionGenerator` in `src/main/kotlin/com/localdevstack/generator/`. Required: `companionName` (lowercase identifier, also the compose service name and `--with` token), `composeServiceBlock()` returning a YAML snippet starting with `  <name>:` and ending in a newline. Optional overrides: `envOverlay()` (env vars merged into the user's service), `namedVolumes()` (entries appended under `volumes:`).
+2. Add **one entry** to `COMPANIONS` in `LocalDevStackCli`'s companion object: `"<name>" to CompanionSpec(::YourCompanionGenerator)`. The `--with` supported-list and the name-collision check are auto-derived from `COMPANIONS.keys`.
+3. Add entries in `AllCompanionGeneratorsTest` (parameterized invariants: header line, trailing newline, uppercase env keys) and a CLI-level test in `LocalDevStackCliTest` mirroring the existing `--with mailhog` / `--with minio` tests.
+4. If the companion is heavy / slow / non-universal, **score it against the five criteria** documented in the brainstorm before adding: universal need across personas, zero-config single container, drop-in for a real cloud service, visible UI, mature stable image. Companions that fail criterion #2 (needs init / unseal / config) belong in a separate larger feature, not the `--with` flag.
 
 ### Adding a new migration tool
 

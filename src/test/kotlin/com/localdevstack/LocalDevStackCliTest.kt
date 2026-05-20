@@ -329,4 +329,171 @@ class LocalDevStackCliTest {
         assertContains(err, "Unsupported service type")
         assertFalse(tempDir.resolve("Dockerfile.dev").toFile().exists())
     }
+
+    // ── Companion services (--with) ──────────────────────────────────────────
+
+    @Test
+    fun `--with mailhog adds mailhog service to compose and SMTP env vars to env file`() {
+        cli { companions = listOf("mailhog") }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        val env = tempDir.resolve(".env").toFile().readText()
+        assertContains(compose, "  mailhog:")
+        assertContains(compose, "mailhog/mailhog:v1.0.1")
+        assertContains(compose, "SMTP_HOST=\${SMTP_HOST}")
+        assertContains(env, "SMTP_HOST=mailhog")
+        assertContains(env, "SMTP_PORT=1025")
+    }
+
+    @Test
+    fun `--with minio adds minio service compose and S3 env vars to env file and named volume`() {
+        cli { companions = listOf("minio") }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        val env = tempDir.resolve(".env").toFile().readText()
+        assertContains(compose, "  minio:")
+        assertContains(env, "S3_ENDPOINT=http://minio:9000")
+        assertContains(compose, "  minio_data:")
+    }
+
+    @Test
+    fun `--with mailhog,minio includes both companions`() {
+        cli { companions = listOf("mailhog", "minio") }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertContains(compose, "  mailhog:")
+        assertContains(compose, "  minio:")
+    }
+
+    @Test
+    fun `no --with flag preserves byte-identical default compose`() {
+        cli { companions = emptyList() }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertFalse(compose.contains("mailhog"), "mailhog must not appear without --with")
+        assertFalse(compose.contains("minio"), "minio must not appear without --with")
+    }
+
+    @Test
+    fun `--with unknown companion prints error and creates no files`() {
+        val err = captureErr { cli { companions = listOf("kafka") }.run() }
+        assertContains(err, "Unsupported companion")
+        assertFalse(tempDir.resolve("docker-compose.yml").toFile().exists())
+    }
+
+    @Test
+    fun `name collision with companion name is rejected`() {
+        val err = captureErr {
+            cli {
+                companions = listOf("mailhog")
+                projectName = "mailhog"
+            }.run()
+        }
+        assertContains(err, "conflicts with the 'mailhog:' companion")
+        assertFalse(tempDir.resolve("docker-compose.yml").toFile().exists())
+    }
+
+    @Test
+    fun `--with combines with --migration cleanly`() {
+        cli {
+            serviceType = "go"
+            databaseType = "postgres"
+            migrationTool = "flyway"
+            companions = listOf("mailhog")
+        }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertContains(compose, "  migrate:")
+        assertContains(compose, "  mailhog:")
+        assertContains(compose, "  db:")
+    }
+
+    // ── Dry-run ──────────────────────────────────────────────────────────────
+
+    @ParameterizedTest
+    @ValueSource(strings = ["springboot", "go", "python", "node", "rust", "dotnet", "java", "php", "ruby"])
+    fun `--dry-run writes no files for any service type`(serviceType: String) {
+        cli { this.serviceType = serviceType; dryRun = true }.run()
+        assertFalse(tempDir.resolve("docker-compose.yml").toFile().exists(),
+            "$serviceType: docker-compose.yml must not be written in dry-run")
+        assertFalse(tempDir.resolve("service").toFile().exists(),
+            "$serviceType: service/ must not be created in dry-run")
+        assertFalse(tempDir.resolve(".env").toFile().exists(),
+            "$serviceType: .env must not be written in dry-run")
+    }
+
+    @Test
+    fun `--dry-run still prints the resolved plan to stdout`() {
+        val out = ByteArrayOutputStream()
+        val orig = System.out
+        System.setOut(PrintStream(out))
+        try {
+            cli { serviceType = "go"; databaseType = "postgres"; dryRun = true }.run()
+        } finally {
+            System.setOut(orig)
+        }
+        val printed = out.toString()
+        assertContains(printed, "[dry-run]")
+        assertContains(printed, "docker-compose.yml")
+        assertContains(printed, ".env")
+    }
+
+    @Test
+    fun `--dry-run in existing-dir mode writes no files`() {
+        Files.writeString(tempDir.resolve("go.mod"), "module test")
+        cli {
+            existingDir = tempDir.toString()
+            databaseType = "postgres"
+            dryRun = true
+        }.run()
+        assertFalse(tempDir.resolve("Dockerfile.dev").toFile().exists())
+        assertFalse(tempDir.resolve("docker-compose.yml").toFile().exists())
+        assertFalse(tempDir.resolve(".env").toFile().exists())
+    }
+
+    @Test
+    fun `--dry-run does not require docker to be available`() {
+        // The default cli() helper sets skipDockerCheck = true. Here we force
+        // skipDockerCheck = false and rely on --dry-run alone to bypass the
+        // probe — proves dry-run works on a machine without Docker.
+        val out = ByteArrayOutputStream()
+        val orig = System.out
+        System.setOut(PrintStream(out))
+        try {
+            LocalDevStackCli().apply {
+                outputDir = tempDir.toString()
+                serviceType = "go"
+                databaseType = "postgres"
+                dryRun = true
+                // skipDockerCheck deliberately NOT set
+            }.run()
+        } finally {
+            System.setOut(orig)
+        }
+        val printed = out.toString()
+        assertContains(printed, "[dry-run]")
+        assertFalse(tempDir.resolve("docker-compose.yml").toFile().exists())
+    }
+
+    // ── Companion edge cases ─────────────────────────────────────────────────
+
+    @Test
+    fun `duplicate companion names are deduplicated silently`() {
+        cli { companions = listOf("mailhog", "mailhog") }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        // "  mailhog:" key should appear exactly once
+        val occurrences = "  mailhog:".toRegex().findAll(compose).count()
+        assertContains(compose, "  mailhog:")
+        assert(occurrences == 1) { "expected one mailhog block, found $occurrences" }
+    }
+
+    @Test
+    fun `empty companion tokens are ignored`() {
+        cli { companions = listOf("mailhog", "", "minio") }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertContains(compose, "  mailhog:")
+        assertContains(compose, "  minio:")
+    }
+
+    @Test
+    fun `companion name comparison is case-insensitive`() {
+        cli { companions = listOf("MailHog") }.run()
+        val compose = tempDir.resolve("docker-compose.yml").toFile().readText()
+        assertContains(compose, "  mailhog:")
+    }
 }

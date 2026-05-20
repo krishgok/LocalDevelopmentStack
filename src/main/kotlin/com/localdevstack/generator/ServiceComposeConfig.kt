@@ -19,8 +19,11 @@ fun StringBuilder.appendServiceBlock(config: ServiceComposeConfig) {
     appendLine("      - \"${config.port}:${config.port}\"")
     if (config.envVars.isNotEmpty()) {
         appendLine("    environment:")
-        config.envVars.forEach { (key, value) ->
-            appendLine("      - $key=$value")
+        config.envVars.forEach { (key, _) ->
+            // Reference each env var through compose interpolation so the value
+            // lives in the generated `.env` file (gitignored) rather than being
+            // baked into committed YAML. See EnvFileGenerator.
+            appendLine("      - $key=\${$key}")
         }
     }
     if (config.volumes.isNotEmpty()) {
@@ -31,5 +34,13 @@ fun StringBuilder.appendServiceBlock(config: ServiceComposeConfig) {
     }
     appendLine("    depends_on:")
     appendLine("      db:")
-    append("        condition: service_healthy")
+    appendLine("        condition: service_healthy")
+    appendLine("    healthcheck:")
+    // wget-then-curl fallback covers every base image used by the 9 service
+    // generators (alpine busybox has wget; slim/SDK debian images have curl).
+    appendLine("      test: [\"CMD-SHELL\", \"wget -q -O- http://localhost:${config.port}/health || curl -fsS http://localhost:${config.port}/health || exit 1\"]")
+    appendLine("      interval: 10s")
+    appendLine("      timeout: 3s")
+    appendLine("      retries: 6")
+    appendLine("      start_period: 60s")
 }

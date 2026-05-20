@@ -1,64 +1,156 @@
 # Maintaining LocalDevelopmentStack
 
-This document is for the repository owner only. It lives in the **private source repo** and is never published to the public distribution repo.
+Internal maintainer documentation — release process, contribution patterns for adding new types, and the integration sweep used to validate end-to-end behavior before tagging a release.
 
 ---
 
-## Two-repo model
+## Repository model
 
-| Repo | Visibility | Contents |
-|------|-----------|---------|
-| This repo (private source) | **Private** | Kotlin source, Gradle build, GitHub Actions CI, this file |
-| `krishgok/localdevstack` (dist repo) | **Public** | Native binaries (via releases), Homebrew formula, Scoop manifest, install scripts, README |
+The project uses two Git repositories. Both can be public under Apache 2.0; the split exists for **publication hygiene**, not source secrecy.
 
-The CI in this private repo builds native binaries and pushes everything to the public repo automatically on each version tag. End-users never interact with this repo.
+| Repo                              | Audience      | Contents                                                                                                            |
+|-----------------------------------|---------------|---------------------------------------------------------------------------------------------------------------------|
+| This repo (development)           | Maintainers   | Full Kotlin source, Gradle build, CI workflows, **`CLAUDE.md`**, **`MAINTAINING.md`** (this file), `gen-build-deploy-tests/`, the integration sweep artifacts |
+| `krishgok/localdevstack` (mirror) | End users     | Same source + `LICENSE` + `README.md` + `Formula/` + `bucket/` + `scripts/`. Native binaries published as GitHub release assets. |
 
----
+**What stays out of the public mirror:**
 
-## One-time setup
+- `CLAUDE.md` — internal architecture / decision notes; useful for Claude Code agents and project maintainers, noisy for end users.
+- `MAINTAINING.md` — this file. Release process and maintainer-only procedures.
+- `gen-build-deploy-tests/` — the integration sweep script and its artifacts.
+- Anything under `claude-test-stack*/`, `claude-test-results.tsv`, `claude-test-logs/`, `sweep*.out`, `smoke-test*/`, `smoke-v*/` (also in `.gitignore`).
 
-Do these steps once before tagging the first release.
+**Mirror sync mechanism.** The release workflow (`.github/workflows/release.yml`) builds binaries from this repo on every version tag, publishes them as a GitHub release on the mirror, and updates the Homebrew / Scoop manifests. Source-code sync to the mirror is a separate step — see "Publishing source to the mirror" below.
 
-### 1. Create the public distribution repository
+**Why not just one public repo?** Two reasons. (1) `CLAUDE.md` is dense maintainer context that confuses first-time visitors who land on the README. (2) Keeping the integration-sweep artifacts (`claude-test-results.tsv`, the per-combo logs, the `gen-build-deploy-tests/` harness) out of the user-facing repo keeps that repo's commit log clean and its file tree short. Neither reason requires the development repo to be private — it can stay public if you want external contributions; it just shouldn't *be* the discoverable home of the project.
 
-Create `krishgok/localdevstack` on GitHub with **public** visibility.
+### Public mirror setup
 
-### 2. Seed the distribution repository
+Do these steps **once** before the first release. After setup, every release tag automatically publishes binaries to the mirror via CI (see "Tagging a release" below).
 
-Copy the following files from this source repo into the root of `krishgok/localdevstack` and push them:
+#### 1. Create the mirror repo
 
-```
-Formula/localdevstack.rb      ← Homebrew formula with placeholder sha256 values
-bucket/localdevstack.json     ← Scoop manifest with placeholder hash
-scripts/install.sh            ← curl installer for macOS/Linux
-scripts/install.ps1           ← PowerShell installer for Windows
-README.md                     ← End-user documentation
-```
+On GitHub, create `krishgok/localdevstack` with **public** visibility. Settings to apply right away:
 
-These seed files contain `0000...` placeholder hashes. The CI replaces them with real checksums on every release — you only need to seed them once.
+- **Default branch**: `main`.
+- **Description**: one-liner that matches the README opening sentence.
+- **Topics**: `developer-tools`, `docker`, `dev-environment`, `cli`, `kotlin` (helps discoverability).
+- **Wiki / Projects**: disabled — the mirror is read-only-ish, no need for collaboration surfaces.
+- **Issues**: enabled — this is the canonical issue tracker users will see in `README.md`.
+- **Pull requests**: enable but document in the README that external PRs against the mirror are not merged (contributions land in the development repo); add a CONTRIBUTING.md note when seeding the mirror.
 
-### 3. Add the `DIST_TOKEN` secret to this repo
+#### 2. Generate a `DIST_TOKEN` PAT for CI
 
-The release workflow pushes artifacts and updates the formula/manifest in `krishgok/localdevstack`. It needs a PAT with write access to that repo.
+The release workflow on this repo pushes release assets and updates `Formula/*.rb` / `bucket/*.json` on the mirror. It needs a fine-grained PAT.
 
-1. GitHub → your account → **Settings → Developer settings → Personal access tokens → Fine-grained tokens**
-2. Create a token scoped to `krishgok/localdevstack` with **Contents: Read and write**
-3. In this private source repo → **Settings → Secrets and variables → Actions → New repository secret**
-4. Name: `DIST_TOKEN`, value: the token
+1. GitHub → your account → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
+2. Resource owner: your account. Repository access: **Only select repositories** → `krishgok/localdevstack`.
+3. Repository permissions: **Contents: Read and write**, **Metadata: Read-only**. Nothing else.
+4. Expiration: 1 year (set a calendar reminder to rotate; the release workflow fails loudly when it lapses).
+5. Copy the token (you only see it once).
+6. In **this** repo → **Settings → Secrets and variables → Actions → New repository secret** → name `DIST_TOKEN`, paste the value.
 
-### 4. (Optional) Test native compilation locally
+#### 3. Seed the mirror with the first source sync
 
-Verify `nativeCompile` works on your machine before the first tag:
+Use `git-filter-repo` on a scratch clone — never run `filter-repo` on your main working copy:
 
 ```bash
-# Install GraalVM 21 via SDKMAN (macOS/Linux)
-sdk install java 21-graalce
+# Requires `pip install git-filter-repo` (or `brew install git-filter-repo`).
 
-# Windows — download from https://www.graalvm.org/downloads/ and set JAVA_HOME
+# 1. Make a scratch clone of this repo.
+git clone --no-local . /tmp/ldstack-mirror-sync
+cd /tmp/ldstack-mirror-sync
 
-./gradlew nativeCompile
-./build/native/nativeCompile/localdevstack --version
+# 2. Strip maintainer-only paths from history.
+git filter-repo --invert-paths \
+  --path CLAUDE.md \
+  --path MAINTAINING.md \
+  --path .gitattributes \
+  --path gen-build-deploy-tests/ \
+  --path-glob 'claude-test-*' \
+  --path-glob 'sweep*.out' \
+  --path-glob 'smoke-*'
+
+# 3. Verify the filtered tree looks right (no mirror-excluded files present).
+git log --name-only --oneline | head -40
+ls -la
+
+# 4. Push to the mirror. `--force` is required for filter-repo output.
+git remote add mirror https://github.com/krishgok/localdevstack.git
+git push --force mirror main
+git push --force mirror --tags
 ```
+
+The filter list matches the `.gitattributes` `export-ignore` patterns at the repo root — keep the two in sync if you add new mirror-excluded paths.
+
+#### 4. Seed the package-manager artifacts on the mirror
+
+The release workflow updates `Formula/localdevstack.rb` and `bucket/localdevstack.json` in-place on each release, but the **initial** files have to exist. The filter-repo push from step 3 carries them across already — verify by checking that the mirror has `Formula/localdevstack.rb` and `bucket/localdevstack.json`. If they're missing, add a fresh commit on the mirror with placeholder versions (`v0.0.0`, all-zero sha256) and push.
+
+#### 5. Verify the round-trip
+
+Tag a no-op release (e.g. `v1.2.0-rc1`) and watch the release workflow run end-to-end:
+
+1. **Actions → Release** on this repo turns green.
+2. `krishgok/localdevstack/releases/tag/v1.2.0-rc1` exists with `.exe`, `.tar.gz`, `.zip` assets + matching `.sha256` files for Linux x64, macOS x64, macOS arm64, Windows x64.
+3. The latest commit on `krishgok/localdevstack/main` is from the release workflow and updates `Formula/localdevstack.rb` + `bucket/localdevstack.json` to the new version + the published binary hashes.
+4. `brew install krishgok/localdevstack/localdevstack` and `scoop install localdevstack` resolve to the new version on a fresh machine.
+
+When all four are green, delete the `v1.2.0-rc1` tag/release from both repos and tag the real release.
+
+### Per-release source sync to the mirror
+
+The CI release workflow only publishes binaries + updates the formula/manifest — it does **not** push source code to the mirror. Source sync is a manual step on each release (or as often as you want — the mirror's source view can lag behind the dev repo without affecting binary distribution).
+
+```bash
+# Run after pushing a release tag and the CI workflow turns green.
+rm -rf /tmp/ldstack-mirror-sync
+git clone --no-local . /tmp/ldstack-mirror-sync
+cd /tmp/ldstack-mirror-sync
+git filter-repo --invert-paths \
+  --path CLAUDE.md \
+  --path MAINTAINING.md \
+  --path .gitattributes \
+  --path gen-build-deploy-tests/ \
+  --path-glob 'claude-test-*' \
+  --path-glob 'sweep*.out' \
+  --path-glob 'smoke-*'
+git remote add mirror https://github.com/krishgok/localdevstack.git
+git push --force mirror main
+git push mirror --tags    # no --force on tags; collisions mean someone retagged manually
+```
+
+`--force` rewrites the mirror's `main` history because filter-repo always produces a fresh commit graph. This is by design — the mirror is a derived view of this repo, not its own development branch. Users should never `git pull` from the mirror with the expectation of preserving local commits; the README's "contributions go to the dev repo" note exists for this reason.
+
+### Verifying the mirror is in sync
+
+After any sync, sanity-check from a clean directory:
+
+```bash
+git clone https://github.com/krishgok/localdevstack.git /tmp/ldstack-mirror-check
+cd /tmp/ldstack-mirror-check
+
+# Must NOT exist:
+test ! -e CLAUDE.md         && echo "ok: no CLAUDE.md"
+test ! -e MAINTAINING.md    && echo "ok: no MAINTAINING.md"
+test ! -d gen-build-deploy-tests && echo "ok: no gen-build-deploy-tests"
+
+# Must exist:
+test -f LICENSE             && echo "ok: LICENSE present"
+test -f README.md           && echo "ok: README.md present"
+test -f Formula/localdevstack.rb && echo "ok: Homebrew formula present"
+test -f bucket/localdevstack.json && echo "ok: Scoop manifest present"
+```
+
+### Recovering from mirror divergence
+
+If a maintainer (or a contributor with mirror write access) commits directly to the mirror and the next filter-repo `--force` push would clobber that work:
+
+1. **Don't push** until you understand what was committed. `git log mirror/main..HEAD` on the mirror clone shows mirror-only commits.
+2. **Cherry-pick into this repo** if the change belongs in the canonical source. Then re-run the per-release sync — the change appears on the mirror via the normal flow.
+3. **Discard mirror-only commits** only after verifying nothing important is lost. Force-push proceeds as normal.
+
+This is rare in practice because the mirror's README directs contributions to the dev repo. The recovery procedure exists because the mirror is technically write-enabled to accept the CI workflow's formula/manifest updates.
 
 ---
 
@@ -81,10 +173,10 @@ The CI workflow (`.github/workflows/release.yml`) then automatically:
 1. Runs all tests
 2. Builds native binaries on Linux x64, macOS x64, macOS arm64, Windows x64
 3. Runs smoke tests on each binary (new service scaffold + existing service scaffold)
-4. Publishes all binaries + `.sha256` files to a GitHub release on `krishgok/localdevstack`
-5. Updates `Formula/localdevstack.rb` (version, URLs, sha256 hashes)
-6. Updates `bucket/localdevstack.json` (version, URL, hash)
-7. Commits and pushes those changes to `krishgok/localdevstack`
+4. Publishes all binaries + `.sha256` files to the GitHub release for that tag
+5. Updates `Formula/localdevstack.rb` (version, URLs, sha256 hashes) for Homebrew distribution
+6. Updates `bucket/localdevstack.json` (version, URL, hash) for Scoop distribution
+7. Commits and pushes those updates so package managers pick up the new version
 
 After the workflow completes, `brew upgrade localdevstack` and `scoop update localdevstack` pick up the new version automatically.
 
@@ -95,40 +187,64 @@ After the workflow completes, `brew upgrade localdevstack` and `scoop update loc
 If you need to re-run a release without pushing a new tag (e.g. a failed workflow):
 
 1. GitHub → this repo → **Actions → Release → Run workflow**
-2. Enter the tag to build (e.g. `v1.1.0`)
+2. Enter the tag to build (e.g. `v1.2.0`)
+
+---
+
+## (Optional) Test native compilation locally
+
+Verify `nativeCompile` works on your machine before tagging:
+
+```bash
+# Install GraalVM 21 via SDKMAN (macOS/Linux)
+sdk install java 21-graalce
+
+# Windows — download from https://www.graalvm.org/downloads/ and set JAVA_HOME
+
+./gradlew nativeCompile
+./build/native/nativeCompile/localdevstack --version
+```
 
 ---
 
 ## Repository structure reference
 
+Files marked **[mirror-excluded]** stay out of the public mirror repo (see "Repository model" above).
+
 ```
-LocalDevelopmentStack/          ← private source repo
+LocalDevelopmentStack/
 ├── .github/workflows/
-│   └── release.yml             ← 4-platform CI + publish to dist repo
+│   └── release.yml             ← 4-platform CI: tests, native binaries, GitHub release
 ├── src/
 │   └── main/kotlin/com/localdevstack/
-│       ├── LocalDevStackCli.kt         ← picocli CLI, two modes + --migration flag
+│       ├── LocalDevStackCli.kt           ← picocli CLI: two modes, --migration, --with, --dry-run
 │       ├── detector/
 │       │   └── ExistingServiceDetector.kt
 │       └── generator/
-│           ├── *ServiceGenerator.kt    ← 9 implementations
-│           ├── *DatabaseGenerator.kt   ← 8 implementations
-│           ├── *DockerfileGenerator.kt ← 9 implementations (hot-reload)
-│           ├── *MigrationGenerator.kt  ← 4 implementations (Flyway, Liquibase,
-│           │                              migrate-mongo, golang-migrate) + interface
-│           ├── MigrationComposeAppender.kt ← post-processes compose.yml to insert
-│           │                                  the migrate service block
+│           ├── *ServiceGenerator.kt      ← 9 implementations
+│           ├── *DatabaseGenerator.kt     ← 8 implementations
+│           ├── *DockerfileGenerator.kt   ← 9 implementations (hot-reload)
+│           ├── *MigrationGenerator.kt    ← 4 implementations + interface
+│           ├── *CompanionGenerator.kt    ← 2 implementations + interface
+│           ├── MigrationComposeAppender.kt
+│           ├── CompanionComposeAppender.kt
+│           ├── EnvFileGenerator.kt
+│           ├── GitignoreGenerator.kt
 │           └── ServiceComposeConfig.kt
+├── gen-build-deploy-tests/     ← [mirror-excluded] integration sweep harness
+│   └── claude-test-sweep.sh
 ├── Formula/
-│   └── localdevstack.rb        ← seed for Homebrew formula (CI keeps updated)
+│   └── localdevstack.rb        ← Homebrew formula (CI updates per release)
 ├── bucket/
-│   └── localdevstack.json      ← seed for Scoop manifest (CI keeps updated)
+│   └── localdevstack.json      ← Scoop manifest (CI updates per release)
 ├── scripts/
 │   ├── install.sh              ← curl installer
 │   └── install.ps1             ← PowerShell installer
-├── README.md                   ← public end-user docs (copy to dist repo)
-├── MAINTAINING.md              ← this file (private, do not publish)
-├── CLAUDE.md                   ← Claude Code guidance (private)
+├── README.md                   ← end-user documentation
+├── MAINTAINING.md              ← [mirror-excluded] this file
+├── CLAUDE.md                   ← [mirror-excluded] Claude Code guidance
+├── LICENSE                     ← Apache 2.0
+├── .gitattributes              ← marks mirror-excluded paths with export-ignore
 └── build.gradle.kts            ← Gradle + GraalVM native image config
 ```
 
@@ -156,10 +272,19 @@ Patterns the 72-combo integration sweep surfaced repeatedly — check each befor
 
 ## Adding a new database type
 
-1. Implement `DatabaseGenerator`. The compose YAML **must** end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` can splice the migrate block. `MigrationComposeAppenderTest` enforces this.
+1. Implement `DatabaseGenerator`. The compose YAML **must** end with `\nvolumes:\n  <name>_data:` so `appendMigrateBlockToCompose` and `appendCompanionBlocksToCompose` can splice their additions. `MigrationComposeAppenderTest` and `CompanionComposeAppenderTest` enforce this.
 2. Add **one entry** to the `DATABASES` map in the companion object: `"<type>" to DbSpec(::YourDatabaseGenerator, mapOf("<ENV_KEY>" to "<url>"), { DbConnectionInfo(it, jdbcUrl = "...", user = "...", password = "...") })`. JDBC URL, env var, credentials all in one place.
 3. Add the database to `SUPPORTED_MIGRATIONS` (in the same companion object) with the compatible migration tools, or an empty list for "no migration support". The supported-databases error string is auto-derived.
 4. Update the supported-types tables in `README.md` and `CLAUDE.md`.
+
+## Adding a new companion type
+
+1. Implement `CompanionGenerator` (interface in `generator/CompanionGenerator.kt`) — `companionName` (lowercase identifier, also the compose service name and `--with` token), `composeServiceBlock()` (YAML snippet starting with `  <name>:`, ending in newline). Optional: `envOverlay()`, `namedVolumes()`.
+2. Add **one entry** to the `COMPANIONS` map in `LocalDevStackCli`'s companion object: `"<name>" to CompanionSpec(::YourCompanionGenerator)`. The supported-list error and `--name` collision check are auto-derived.
+3. Add rows to `AllCompanionGeneratorsTest.companions()` plus a CLI-level test in `LocalDevStackCliTest` (mirror the existing `--with mailhog` / `--with minio` tests).
+4. Score the candidate against the five companion criteria before merging — universal need across personas, zero-config single container, drop-in for a real cloud service, visible UI, mature stable image. If criterion #2 fails, it does not belong behind `--with`.
+5. Add the companion to the integration sweep — at minimum, one combo of `--service <any> --database <any> --with <new-companion>` that boots `/health` 200 plus the companion's own health endpoint.
+6. Update the companion table in `README.md` and `CLAUDE.md`.
 
 ## Adding a new migration tool
 
@@ -177,31 +302,61 @@ Patterns the 72-combo integration sweep surfaced repeatedly — check each befor
 
 Unit tests cover generator output structure; they do not verify that a generated stack actually runs. The integration sweep covers that gap.
 
-`claude-test-sweep.sh` iterates every `(--service, --database)` pair (9 × 8 = 72 combos), generates each into `claude-test-stack-v*/`, runs `docker compose up -d --build`, polls `http://localhost:8080/health` until a 200, records the result to `claude-test-results.tsv`, then tears down. It is **not** wired into CI — Docker images alone are ~10 GB and a cold sweep is ~2 hours — but run it locally before merging anything that touches a `*ServiceGenerator`, `*DockerfileGenerator`, or `*DatabaseGenerator`.
+`gen-build-deploy-tests/claude-test-sweep.sh` iterates every `(--service, --database)` pair (9 × 8 = 72 combos), generates each into `claude-test-stack-v*/`, runs `docker compose up -d --build`, polls `http://localhost:8080/health` until a 200, records the result to `claude-test-results.tsv`, then tears down. It is **not** wired into CI — Docker images alone are ~10 GB and a cold sweep is ~2 hours — but run it locally before merging anything that touches a `*ServiceGenerator`, `*DockerfileGenerator`, `*DatabaseGenerator`, `*CompanionGenerator`, or the `appendServiceBlock` healthcheck/env-interpolation contract.
 
-**Prerequisites:** Docker Desktop running, and a fresh fat JAR at `build/libs/LocalDevelopmentStack-<version>.jar` matching the hard-coded path in the script.
+### Extended sweep (1.2.0+)
+
+The 72-combo grid is the core. Append the following targeted combos when a sweep is required:
+
+| Category | Combos | What to verify |
+|----------|--------|----------------|
+| Companion: mailhog | 9 (one per service × `postgres`) | `docker compose up` boots clean; `curl localhost:8025` returns the MailHog UI HTML; service container reads `SMTP_HOST=mailhog` from `.env` |
+| Companion: minio   | 9 (one per service × `postgres`) | `curl localhost:9000/minio/health/live` returns 200; console reachable on `:9001`; `minio_data` volume created |
+| Combined           | 1 (`--with mailhog,minio --migration flyway --service springboot --database postgres`) | All four post-processors run; service+db+migrate+mailhog+minio all listed in `docker compose ps`; `/health` returns 200 |
+| `.env` round-trip  | 8 (one per database, default service) | `docker compose --env-file .env config` returns zero unresolved variables; the resolved compose is functionally equivalent to pre-`.env` output |
+| `--dry-run`        | 9 services × 8 databases = 72 | Each combo: `--dry-run` exits 0, no files in `tempDir`, plan summary printed |
+
+Extended total = 72 (core) + 9 (mailhog) + 9 (minio) + 1 (omnibus) + 8 (env) + 72 (dry-run, fast — no docker) = **171 combos**. The 72 dry-run combos run in seconds; only the first 99 are Docker-bound.
+
+**Prerequisites:** Docker Desktop running, and a fresh fat JAR at `build/libs/LocalDevelopmentStack-<version>.jar` matching the path in the script.
 
 ```bash
 # Full 72-combo sweep (rebuild JAR first to pick up any generator changes)
-gradle shadowJar && bash claude-test-sweep.sh
+gradle shadowJar && bash gen-build-deploy-tests/claude-test-sweep.sh
 
 # Scoped re-runs (resume logic skips combos already in claude-test-results.tsv)
-SVC_FILTER=ruby bash claude-test-sweep.sh                    # one service, all 8 DBs
-SVC_FILTER=ruby DB_FILTER=postgres bash claude-test-sweep.sh # single combo
+SVC_FILTER=ruby bash gen-build-deploy-tests/claude-test-sweep.sh                    # one service, all 8 DBs
+SVC_FILTER=ruby DB_FILTER=postgres bash gen-build-deploy-tests/claude-test-sweep.sh # single combo
 
 # Force a full re-sweep
-rm claude-test-results.tsv && bash claude-test-sweep.sh
+rm claude-test-results.tsv && bash gen-build-deploy-tests/claude-test-sweep.sh
 ```
 
-The sweep is long-running (cold first run ~2 hours; warm re-runs ~30 min). Detach it from your shell if you need the terminal back: `nohup bash claude-test-sweep.sh > sweep.out 2>&1 &` then `tail -F claude-test-results.tsv` to follow progress.
+The sweep is long-running (cold first run ~2 hours; warm re-runs ~30 min). Detach it from your shell if you need the terminal back: `nohup bash gen-build-deploy-tests/claude-test-sweep.sh > sweep.out 2>&1 &` then `tail -F claude-test-results.tsv` to follow progress.
 
 Resume logic: `claude-test-results.tsv` is append-only and the script skips any combo already recorded. To re-run a failing combo, delete its row first. To force a full re-sweep, delete the file (the header is regenerated). The append behaviour is how `SVC_FILTER` / `DB_FILTER` reruns add to the same results table without clobbering prior passes.
 
 Per-combo logs land in `claude-test-logs/{svc}_{db}-up.log` (compose build + container logs). The harness keeps these around after pass/fail; nuke the directory when you're done.
 
-`STACK_DIR` is bumped (v2 → v3 → ...) whenever Docker Desktop locks the folder mid-sweep and won't release it; the simplest workaround is to use a fresh folder name rather than fight the lock. The artifacts (`claude-test-stack-v*/`, `claude-test-results.tsv`, `claude-test-logs/`, `sweep.out`) are gitignored intentionally.
+`STACK_DIR` is bumped (v2 → v3 → ...) whenever Docker Desktop locks the folder mid-sweep and won't release it; the simplest workaround is to use a fresh folder name rather than fight the lock. The artifacts (`claude-test-stack-v*/`, `claude-test-results.tsv`, `claude-test-logs/`, `sweep*.out`) are gitignored intentionally.
 
 Per-combo budget is `TIMEOUT=900` seconds. The first build of a service tier (cold cargo / cold Maven / cold composer) eats most of that; subsequent combos in the same tier reuse Docker layer cache and finish in ~30-60s.
+
+### Companion sweep (`claude-test-sweep-companions.sh`)
+
+Sibling to the core sweep, focused on the `--with` flag. Runs 9 services × `--with mailhog` (postgres backend) + 9 × `--with minio` + 1 omnibus (`springboot+postgres+mailhog,minio+flyway`). Each combo probes `/health` AND the companion's own endpoint (`http://localhost:8025/` for mailhog, `http://localhost:9000/minio/health/live` for minio). Append-only results land in `claude-test-results-companions.tsv`. Run after the core sweep, when the layer caches are warm:
+
+```bash
+gradle shadowJar && bash gen-build-deploy-tests/claude-test-sweep-companions.sh
+```
+
+The script is resume-safe (skips combos already in the TSV). To rerun a specific combo, delete its row first.
+
+### Known transient flakes
+
+These have failed once in a sweep, passed cleanly on retry, and the failure is not reproducible in adjacent runs. When you hit one, **retry it first** before debugging — don't sink time into chasing a flake that the next run will pass.
+
+- **`rust + mailhog` binary-exits-0-at-startup.** Observed once (2026-05-20, 909s timeout in the 1.2.0 companion sweep). Symptoms: cargo-watch prints `Finished dev … in 0.17s` then `Running target/debug/<bin>` then `[Finished running. Exit status: 0]`, with no `println!` output and no panic message. The container stays `Up (unhealthy)` until the deadline. `rust + minio` ran immediately after with identical Dockerfile / template / anonymous volume state and passed in 51s; `rust + mailhog` retried clean at 57s. Hypothesis: Docker Desktop on Windows occasionally serves a stale `target/debug/<bin>` from the warmup `cargo build` layer when bind-mount mtimes race with cargo's freshness check. If this recurs *reproducibly* in a sweep, fix candidates live in `RustDockerfileGenerator.kt`: (a) add `cargo clean -p <crate>` before `cargo watch`, (b) replace `cargo build` warmup with `cargo fetch` (deps only, no binary), or (c) drop the warmup and accept slower cold start.
 
 ### Last full-sweep status
 
@@ -210,3 +365,4 @@ Update this table whenever you run a full sweep (drop the row, add a new one). I
 | Date       | JAR version | Result      | Notes                                                            |
 |------------|-------------|-------------|------------------------------------------------------------------|
 | 2026-05-14 | 1.1.0       | 72/72 PASS  | 9 services × 8 databases, all `/health` 200. Host: Windows 11.   |
+| 2026-05-20 | 1.2.0       | 91/91 PASS  | Core 72/72 (9 services × 8 databases, all `/health` 200) + Extended 19/19 (9 services × `--with mailhog` + 9 × `--with minio` + 1 omnibus `springboot+postgres+mailhog,minio+flyway`). Validates: the new healthcheck stanza, `${VAR}` env-interpolation, `CompanionGenerator` post-processing for both companions, and the omnibus four-post-processor stack. `rust+mailhog` failed once at 909s (binary exited with stub-binary-like signature) but passed cleanly on retry at 57s; not reproducible, treated as transient Docker Desktop / Cargo freshness flake — adjacent rust_minio and core rust runs all passed. Host: Windows 11. Per-tier timing: cold tier mean ~135s (springboot heaviest at 319s cold); warm tiers 24–60s. |

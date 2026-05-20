@@ -14,7 +14,7 @@ import java.util.logging.Level
 @Command(
     name = "localdevstack",
     mixinStandardHelpOptions = true,
-    version = ["1.1.0"],
+    version = ["1.2.0"],
     description = [
         "Scaffold a local development stack with a service and database.",
         "Supports new service generation or wrapping an existing service directory."
@@ -76,6 +76,24 @@ class LocalDevStackCli : Runnable {
         ]
     )
     var migrationTool: String? = null
+
+    @Option(
+        names = ["--with", "-w"],
+        split = ",",
+        description = [
+            "Opt-in companion services to include in the generated docker-compose.yml.",
+            "Comma-separated or repeatable. Supported: mailhog, minio.",
+            "  mailhog: SMTP catcher (web UI on :8025, SMTP on :1025)",
+            "  minio:   S3-compatible object store (API on :9000, console on :9001)"
+        ]
+    )
+    var companions: List<String> = emptyList()
+
+    @Option(
+        names = ["--dry-run"],
+        description = ["Print the resolved plan and the files that would be written, then exit without touching the filesystem."]
+    )
+    var dryRun: Boolean = false
 
     // Set to true in tests to skip the docker availability check
     internal var skipDockerCheck: Boolean = false
@@ -168,6 +186,15 @@ class LocalDevStackCli : Runnable {
             ),
         )
 
+        private data class CompanionSpec(val factory: () -> CompanionGenerator)
+
+        // Single source of truth for all supported companion services.
+        // Adding a new companion means adding one entry here.
+        private val COMPANIONS: Map<String, CompanionSpec> = linkedMapOf(
+            "mailhog" to CompanionSpec(::MailhogCompanionGenerator),
+            "minio"   to CompanionSpec(::MinioCompanionGenerator),
+        )
+
         // Compatibility matrix: which migration tools work with which database.
         // Empty list = database is recognised but has no compatible migration tool.
         // Mirrors the table in CLAUDE.md.
@@ -184,6 +211,7 @@ class LocalDevStackCli : Runnable {
 
         private val SUPPORTED_SERVICES_LIST = SERVICES.keys.joinToString(", ")
         private val SUPPORTED_DATABASES_LIST = DATABASES.keys.joinToString(", ")
+        private val SUPPORTED_COMPANIONS_LIST = COMPANIONS.keys.joinToString(", ")
         private val MIGRATION_CAPABLE_DATABASES_LIST =
             SUPPORTED_MIGRATIONS.filterValues { it.isNotEmpty() }.keys.joinToString(", ")
     }
@@ -192,9 +220,12 @@ class LocalDevStackCli : Runnable {
         log.info(
             "invoke: mode=${if (existingDir != null) "existing-dir" else "new-service"}" +
                 " service=${serviceType ?: "(default)"} database=$databaseType" +
-                " migration=${migrationTool ?: "(none)"} name=$projectName"
+                " migration=${migrationTool ?: "(none)"} companions=${companions.joinToString(",").ifEmpty { "(none)" }}" +
+                " dryRun=$dryRun name=$projectName"
         )
-        if (!skipDockerCheck) { checkDockerAvailable() ?: return }
+        // Dry-run skips the Docker probe so users on CI / docs hosts can preview
+        // generation without Docker installed.
+        if (!skipDockerCheck && !dryRun) { checkDockerAvailable() ?: return }
 
         if (existingDir != null) {
             runExistingServiceMode()
@@ -279,11 +310,14 @@ class LocalDevStackCli : Runnable {
             if (!checkMigrationCollision(existingPath, migrationGenerator)) return
         }
 
+        val companionGenerators = resolveCompanions() ?: return
+        if (companionGenerators.isNotEmpty() && !validateNameForCompanions(projectName, companionGenerators)) return
+
         val resolvedPort = resolvePort()
         val resolvedName = if (projectName == DEFAULT_PROJECT_NAME) existingPath.fileName.toString() else projectName
         log.info("resolved: name=$resolvedName port=$resolvedPort")
 
-        val envVars = dbEnvVars(databaseType)
+        val envVars = mergedEnvVars(databaseType, companionGenerators)
         val serviceConfig = ServiceComposeConfig(
             name = resolvedName,
             dockerfilePath = "Dockerfile.dev",
@@ -297,7 +331,13 @@ class LocalDevStackCli : Runnable {
         println("  Database : $databaseType")
         println("  Port     : $resolvedPort")
         if (migrationGenerator != null) println("  Migration: ${migrationGenerator.toolName}")
+        if (companionGenerators.isNotEmpty()) println("  Companions: ${companionGenerators.joinToString(", ") { it.companionName }}")
         println()
+
+        if (dryRun) {
+            printDryRunPlan(existingPath, mode = "existing-dir", migrationGenerator, companionGenerators, includeServiceScaffold = false)
+            return
+        }
 
         log.info("generating Dockerfile.dev at $existingPath")
         dockerfileGenerator.generate(existingPath, resolvedName)
@@ -305,6 +345,10 @@ class LocalDevStackCli : Runnable {
         databaseGenerator.generate(existingPath, serviceConfig)
 
         runMigrationStage(existingPath, resolvedName, migrationGenerator)
+        runCompanionStage(existingPath, companionGenerators)
+
+        EnvFileGenerator().generate(existingPath, envVars)
+        GitignoreGenerator().generate(existingPath)
 
         println()
         println("Files generated in: $existingPath")
@@ -319,7 +363,9 @@ class LocalDevStackCli : Runnable {
         println("     recompiles/restarts your service automatically.")
         println("  4. Verify your service using your own endpoints.")
         println("     (LocalDevelopmentStack does not add or modify any endpoints in your service.)")
-        printMigrationTrailer(migrationGenerator, stepNumber = 5)
+        val migrationStep = 5
+        printMigrationTrailer(migrationGenerator, stepNumber = migrationStep)
+        printCompanionTrailer(companionGenerators)
         printMultiDbTip(existingDir!!, databaseType)
     }
 
@@ -334,6 +380,9 @@ class LocalDevStackCli : Runnable {
 
         val migrationGenerator = migrationTool?.let { resolveMigrationGenerator(databaseType, it) ?: return }
         if (migrationGenerator != null && !validateNameForMigrations(projectName)) return
+
+        val companionGenerators = resolveCompanions() ?: return
+        if (companionGenerators.isNotEmpty() && !validateNameForCompanions(projectName, companionGenerators)) return
 
         val outputPath = Path.of(outputDir).toAbsolutePath().normalize()
         val cwd = Path.of("").toAbsolutePath()
@@ -362,7 +411,7 @@ class LocalDevStackCli : Runnable {
             dockerfilePath = "Dockerfile.dev",
             buildContext = "./service",
             port = resolvedPort,
-            envVars = dbEnvVars(databaseType),
+            envVars = mergedEnvVars(databaseType, companionGenerators),
             volumes = newScaffoldVolumes(effectiveServiceType)
         )
 
@@ -372,7 +421,13 @@ class LocalDevStackCli : Runnable {
         println("  Port     : $resolvedPort")
         println("  Output   : $outputPath")
         if (migrationGenerator != null) println("  Migration: ${migrationGenerator.toolName}")
+        if (companionGenerators.isNotEmpty()) println("  Companions: ${companionGenerators.joinToString(", ") { it.companionName }}")
         println()
+
+        if (dryRun) {
+            printDryRunPlan(outputPath, mode = "new-service", migrationGenerator, companionGenerators, includeServiceScaffold = true)
+            return
+        }
 
         log.info("generating service ($effectiveServiceType) at $outputPath")
         serviceGenerator.generate(outputPath, projectName)
@@ -382,6 +437,10 @@ class LocalDevStackCli : Runnable {
         databaseGenerator.generate(outputPath, serviceConfig)
 
         runMigrationStage(outputPath, projectName, migrationGenerator)
+        runCompanionStage(outputPath, companionGenerators)
+
+        EnvFileGenerator().generate(outputPath, serviceConfig.envVars)
+        GitignoreGenerator().generate(outputPath)
 
         println()
         println("Stack generated at: $outputPath")
@@ -394,6 +453,7 @@ class LocalDevStackCli : Runnable {
         println("  3. curl http://localhost:$resolvedPort/health")
         println("     → {\"status\":\"ok\"}")
         printMigrationTrailer(migrationGenerator, stepNumber = 4)
+        printCompanionTrailer(companionGenerators)
         printMultiDbTip(outputDir, databaseType)
     }
 
@@ -443,6 +503,124 @@ class LocalDevStackCli : Runnable {
         if (generator == null) return
         println("  $stepNumber. Run migrations: docker-compose run --rm migrate")
         println("     ${generator.createMigrationHint()}")
+    }
+
+    // ── Companion helpers ────────────────────────────────────────────────────────
+
+    private fun resolveCompanions(): List<CompanionGenerator>? {
+        if (companions.isEmpty()) return emptyList()
+        val seen = linkedSetOf<String>()
+        val resolved = mutableListOf<CompanionGenerator>()
+        for (raw in companions) {
+            val name = raw.trim().lowercase()
+            if (name.isEmpty()) continue
+            if (!seen.add(name)) {
+                log.warning("duplicate companion '$name' ignored")
+                continue
+            }
+            val spec = COMPANIONS[name]
+            if (spec == null) {
+                log.warning("unsupported companion: $raw")
+                System.err.println("Unsupported companion: '$raw'.")
+                System.err.println("Supported: $SUPPORTED_COMPANIONS_LIST")
+                return null
+            }
+            resolved.add(spec.factory())
+        }
+        return resolved
+    }
+
+    private fun validateNameForCompanions(name: String, generators: List<CompanionGenerator>): Boolean {
+        val lower = name.lowercase()
+        val clash = generators.firstOrNull { it.companionName == lower }
+        if (clash != null) {
+            log.warning("name '$name' conflicts with companion service '${clash.companionName}'")
+            System.err.println("Error: --name '$name' conflicts with the '${clash.companionName}:' companion service in the generated docker-compose.yml.")
+            System.err.println("  Choose a different --name when --with $lower is set.")
+            return false
+        }
+        return true
+    }
+
+    private fun mergedEnvVars(dbType: String, generators: List<CompanionGenerator>): Map<String, String> {
+        if (generators.isEmpty()) return dbEnvVars(dbType)
+        val merged = linkedMapOf<String, String>()
+        merged.putAll(dbEnvVars(dbType))
+        generators.forEach { gen ->
+            gen.envOverlay().forEach { (key, value) ->
+                if (merged.containsKey(key)) {
+                    log.warning("companion '${gen.companionName}' env key '$key' overrides existing value")
+                }
+                merged[key] = value
+            }
+        }
+        return merged
+    }
+
+    private fun runCompanionStage(outputPath: Path, generators: List<CompanionGenerator>) {
+        if (generators.isEmpty()) return
+        log.info("appending companion blocks: ${generators.joinToString(",") { it.companionName }}")
+        appendCompanionBlocksToCompose(outputPath.resolve("docker-compose.yml"), generators)
+        generators.forEach { println("  [OK] Companion: ${it.companionName}") }
+    }
+
+    private fun printCompanionTrailer(generators: List<CompanionGenerator>) {
+        if (generators.isEmpty()) return
+        println()
+        println("Companion services available after 'docker-compose up':")
+        generators.forEach { gen ->
+            when (gen.companionName) {
+                "mailhog" -> println("  - MailHog: web UI http://localhost:8025  (SMTP at mailhog:1025 inside the network)")
+                "minio"   -> println("  - MinIO:   console http://localhost:9001 (S3 API at http://localhost:9000; user=minio_dev pass=minio_dev_only)")
+                else      -> println("  - ${gen.companionName}")
+            }
+        }
+    }
+
+    // ── Dry-run plan output ──────────────────────────────────────────────────────
+
+    private fun printDryRunPlan(
+        outputPath: Path,
+        mode: String,
+        migrationGenerator: MigrationGenerator?,
+        companionGenerators: List<CompanionGenerator>,
+        includeServiceScaffold: Boolean,
+    ) {
+        log.info("dry-run: skipping all file writes")
+        println("[dry-run] No files will be written. Files that would be generated:")
+        val base = outputPath.toString()
+        val files = buildList {
+            if (includeServiceScaffold) {
+                add("$base${java.io.File.separator}service${java.io.File.separator}    (language-specific source files)")
+                add("$base${java.io.File.separator}service${java.io.File.separator}Dockerfile.dev")
+            } else {
+                add("$base${java.io.File.separator}Dockerfile.dev")
+            }
+            add("$base${java.io.File.separator}docker-compose.yml")
+            add("$base${java.io.File.separator}.env")
+            add("$base${java.io.File.separator}.env.example")
+            add("$base${java.io.File.separator}.gitignore" +
+                if (mode == "existing-dir") "  (.env appended if file already exists)" else "")
+            if (migrationGenerator != null) {
+                when (migrationGenerator.toolName) {
+                    "liquibase" -> add("$base${java.io.File.separator}db${java.io.File.separator}changelog${java.io.File.separator}db.changelog-master.sql")
+                    "migrate-mongo" -> {
+                        add("$base${java.io.File.separator}migrations${java.io.File.separator}0001-init.js")
+                        add("$base${java.io.File.separator}migrate-mongo-config.js")
+                        add("$base${java.io.File.separator}Dockerfile.migrate")
+                    }
+                    "golang-migrate" -> add("$base${java.io.File.separator}migrations${java.io.File.separator}000001_init.up.sql")
+                    else -> add("$base${java.io.File.separator}migrations${java.io.File.separator}V001__init.sql")
+                }
+            }
+        }
+        files.forEach { println("  - $it") }
+        if (companionGenerators.isNotEmpty()) {
+            println("Companion services that would be appended to docker-compose.yml:")
+            companionGenerators.forEach { println("  - ${it.companionName}") }
+        }
+        println()
+        println("Re-run without --dry-run to write these files.")
     }
 
     // ── Multi-DB tip ─────────────────────────────────────────────────────────────

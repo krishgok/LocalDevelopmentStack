@@ -9,6 +9,8 @@ Two modes — both produce a stack that comes up with a single `docker-compose u
 
 Optional **database migrations** — pass `--migration <tool>` (Flyway, Liquibase, migrate-mongo, golang-migrate) to scaffold an example migration plus a one-shot `migrate:` service that runs on demand via `docker-compose run --rm migrate`.
 
+Optional **companion services** — pass `--with mailhog,minio` to include a local SMTP catcher (MailHog) and/or an S3-compatible object store (MinIO) alongside your service.
+
 > **No JVM required.** LocalDevelopmentStack is distributed as a self-contained native binary.
 
 ---
@@ -345,6 +347,48 @@ docker-compose run --rm migrate
 
 ---
 
+## Companion services (optional)
+
+Pass `--with <name>[,<name>...]` to include extra dev-only services in `docker-compose.yml`. Both are off by default.
+
+| `--with`  | Image                            | Ports          | Purpose                              | Env vars injected into your service |
+|-----------|----------------------------------|----------------|--------------------------------------|-------------------------------------|
+| `mailhog` | `mailhog/mailhog:v1.0.1`         | `1025`, `8025` | SMTP catcher with a web UI on `:8025`. Capture outgoing email instead of sending it. | `SMTP_HOST=mailhog`, `SMTP_PORT=1025` |
+| `minio`   | `minio/minio:RELEASE.2024-12-18` | `9000`, `9001` | S3-compatible object store with a console on `:9001`. | `S3_ENDPOINT=http://minio:9000`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` |
+
+```bash
+localdevstack --service node --database postgres --with mailhog,minio --output ./my-stack
+```
+
+Companions land in the same `docker-compose.yml` and start with `docker-compose up`. Their default credentials are local-dev values stored in `.env` — change them there, not in compose.
+
+---
+
+## Environment file
+
+Every generated stack now ships a `.env` file alongside `docker-compose.yml`:
+
+- **`.env`** — resolved values (database URL, companion credentials). Already added to `.gitignore` so it doesn't get committed.
+- **`.env.example`** — same keys with `<change-me>` placeholders. Safe to commit; use it to onboard new collaborators.
+
+The compose file references each value via `${VAR}`. To rotate credentials, edit `.env` and re-run `docker-compose up`.
+
+In existing-dir mode, `.env` is added to your existing `.gitignore` if missing; your other rules are preserved.
+
+---
+
+## Preview without writing files
+
+Pass `--dry-run` to print the resolved plan and the files that would be generated, then exit without touching the filesystem.
+
+```bash
+localdevstack --service go --database postgres --with minio --dry-run
+```
+
+Useful before running in `--existing-dir` mode to confirm exactly which files will land in your repo.
+
+---
+
 ## Multi-database setup
 
 One database per invocation by design. To add a second database (e.g. Redis for caching alongside Postgres):
@@ -364,25 +408,47 @@ rm -rf ./tmp-redis
 
 ---
 
-## ⚠️ Important disclaimers
+## Roadmap
 
-**Database migrations are opt-in and run on demand.**
-By default, LocalDevelopmentStack only creates the database container and injects the connection string — it does not create schemas or seed data. Pass `--migration <tool>` (see [Database migrations](#database-migrations-optional)) to scaffold an example migration and a `migrate:` compose service. Even when generated, the migrate service uses the `migrations` compose profile so it does **not** auto-start with `docker-compose up` — invoke it explicitly with `docker-compose run --rm migrate` when you want to apply migrations.
+Items under active consideration for future releases. Open an issue to vote or propose.
 
-**`Dockerfile.dev` is for local development only.**
-The generated `Dockerfile.dev` is optimised for developer convenience — hot-reload, full source access, development dependencies. It is not hardened for production. Review it thoroughly before using it in any shared or production environment. Never use `Dockerfile.dev` in a production pipeline.
+- **More companions** — Redis-as-cache, Prometheus + Grafana, OpenTelemetry collector + Jaeger, pgAdmin / Mongo Express / RedisInsight.
+- **Service variants** — TypeScript Node, Elixir / Phoenix, Bun, Deno.
+- **Vector databases** — pgvector (Postgres extension), Qdrant, Weaviate.
+- **Bigger bets** — Kubernetes output (Helm / Kustomize for `kind` / `k3d`), multi-service composition (`--service go,node`), stack presets, interactive `init` wizard.
 
-**Your existing source code is never modified.**
-When using `--existing-dir`, LocalDevelopmentStack only creates `Dockerfile.dev` and `docker-compose.yml`. It does not read, parse, or change any source files in your project.
+Companion proposals are evaluated against five criteria — universal need, zero-config single container, drop-in for a real cloud service, visible UI, mature stable image.
 
-**Database data is stored in named Docker volumes on your local machine.**
-Data persists between `docker-compose up/down` restarts. Running `docker-compose down -v` permanently deletes all data in those volumes. This tool is for local development only — do not use it to manage production or shared databases.
+---
+
+## Disclaimers & limitations
+
+**Intended use is local development only.**
+Generated artifacts (`Dockerfile.dev`, `docker-compose.yml`, `.env`) are optimised for developer convenience and are not hardened for production. Do not deploy them to shared or production environments without thorough review and changes.
 
 **Default credentials are intentionally insecure.**
-Generated files use well-known development defaults (e.g. `postgres/postgres`). Change these before connecting to any non-local environment.
+Generated files use well-known development defaults (e.g. `postgres/postgres_dev_only`, `minio_dev/minio_dev_only`). The `.env` file is gitignored to discourage accidental commits, but you are responsible for not exposing local credentials beyond your machine.
 
-**This software is proprietary.**
-The binary is freely usable for development purposes. Redistribution, decompilation, and reverse engineering are prohibited.
+**Data is ephemeral.**
+Database and companion data live in named Docker volumes on your machine. Running `docker-compose down -v` permanently deletes all data. Do not use this tool to manage production data.
+
+**Migrations are opt-in and run on demand.**
+The `migrate:` compose service uses the `migrations` profile, so it does **not** auto-start with `docker-compose up`. Invoke it explicitly with `docker-compose run --rm migrate`. Your service container does not depend on `migrate`; run migrations first if your code expects the schema.
+
+**Your existing source code is never modified.**
+In `--existing-dir` mode, LocalDevelopmentStack only writes `Dockerfile.dev`, `docker-compose.yml`, `.env`, `.env.example`, and (idempotently) `.gitignore`. It does not read, parse, or change source files.
+
+**Third-party container images.**
+The generated `docker-compose.yml` references images from Docker Hub, Microsoft Container Registry, and similar third-party registries (Postgres, MySQL, MailHog, MinIO, etc.). Use of those images is governed by their own licenses and terms; this tool does not bundle, modify, or relicense them. You are responsible for compliance.
+
+**Warranty.**
+This software is provided "AS IS", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. To the maximum extent permitted by law, no liability shall attach to the authors or maintainers for damages arising from use of this tool. See the [LICENSE](LICENSE) file.
+
+---
+
+## License
+
+Licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) for the full text. The Apache 2.0 license includes an explicit patent grant and the warranty / liability disclaimer summarised above.
 
 ---
 
