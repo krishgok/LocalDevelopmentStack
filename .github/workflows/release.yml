@@ -128,6 +128,10 @@ jobs:
           java-version: '21'
           distribution: 'graalvm-community'
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # native-image on Windows shells out to cl.exe / link.exe; without
+          # this flag the runner's Visual Studio Build Tools are installed but
+          # vcvars64 is not on PATH and native-image exits with code 20.
+          native-image-msvc: 'true'
       - name: Build native image
         run: ./gradlew nativeCompile
       - name: Package artifact
