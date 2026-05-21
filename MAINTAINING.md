@@ -91,14 +91,41 @@ The release workflow updates `Formula/localdevstack.rb` and `bucket/localdevstac
 
 #### 5. Verify the round-trip
 
-Tag a no-op release (e.g. `v1.2.0-rc1`) and watch the release workflow run end-to-end:
+Tag a no-op release (e.g. `v1.2.0-rc1`) and watch the release workflow run end-to-end.
+
+**The workflow chain.** All automation lives in *this* repo — nothing runs inside the mirror. A tag push here triggers `.github/workflows/release.yml`, which (a) builds the GraalVM native binaries for all four platforms, (b) uses `DIST_TOKEN` to create the GitHub release on `krishgok/localdevstack` and upload the assets, and (c) clones the mirror, rewrites `Formula/localdevstack.rb` + `bucket/localdevstack.json`, and pushes that commit back to the mirror's `main`.
+
+**A note on the tag trigger.** The `push` trigger pattern in `release.yml` is `v[0-9]+.[0-9]+.[0-9]+`, which only fires on strict `vMAJOR.MINOR.PATCH` tags — `-rc1` suffixes are deliberately excluded so prereleases don't ship to brew/scoop users. Use `workflow_dispatch` to fire the workflow against an rc tag:
+
+```bash
+# 1. Tag this repo's HEAD with an rc tag. (Does NOT auto-trigger the workflow
+#    because of the strict version regex — that exclusion is intentional.)
+git tag v1.2.0-rc1
+git push origin v1.2.0-rc1
+
+# 2. Manually fire the release workflow against that tag.
+gh workflow run release.yml --ref v1.2.0-rc1 -f tag=v1.2.0-rc1
+gh run watch    # follow the run until it goes green (or red)
+```
+
+Verify in order:
 
 1. **Actions → Release** on this repo turns green.
 2. `krishgok/localdevstack/releases/tag/v1.2.0-rc1` exists with `.exe`, `.tar.gz`, `.zip` assets + matching `.sha256` files for Linux x64, macOS x64, macOS arm64, Windows x64.
 3. The latest commit on `krishgok/localdevstack/main` is from the release workflow and updates `Formula/localdevstack.rb` + `bucket/localdevstack.json` to the new version + the published binary hashes.
 4. `brew install krishgok/localdevstack/localdevstack` and `scoop install localdevstack` resolve to the new version on a fresh machine.
 
-When all four are green, delete the `v1.2.0-rc1` tag/release from both repos and tag the real release.
+When all four are green, tear down the rc artifacts in both repos before tagging the real release:
+
+```bash
+# Delete the GitHub release on the mirror; --cleanup-tag also removes the tag
+# from the mirror, so no separate `git push --delete` is needed against it.
+gh release delete v1.2.0-rc1 --repo krishgok/localdevstack --yes --cleanup-tag
+
+# Delete the tag locally and from this (dev) repo.
+git tag -d v1.2.0-rc1
+git push origin :refs/tags/v1.2.0-rc1
+```
 
 ### Per-release source sync to the mirror
 
