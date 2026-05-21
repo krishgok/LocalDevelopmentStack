@@ -155,6 +155,7 @@ jobs:
       - name: Publish to distribution repo
         env:
           DIST_TOKEN: ${{ secrets.DIST_TOKEN }}
+          GH_TOKEN: ${{ secrets.DIST_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
 
@@ -198,5 +199,3 @@ jobs:
           git add Formula/localdevstack.rb bucket/localdevstack.json
           git commit -m "localdevstack v${VERSION}"
           git push
-        env:
-          GH_TOKEN: ${{ secrets.DIST_TOKEN }}

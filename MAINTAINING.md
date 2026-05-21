@@ -102,11 +102,16 @@ Tag a no-op release (e.g. `v1.2.0-rc1`) and watch the release workflow run end-t
 #    because of the strict version regex — that exclusion is intentional.)
 git tag v1.2.0-rc1
 git push origin v1.2.0-rc1
-
-# 2. Manually fire the release workflow against that tag.
-gh workflow run release.yml --ref v1.2.0-rc1 -f tag=v1.2.0-rc1
-gh run watch    # follow the run until it goes green (or red)
 ```
+
+2. Then fire the release workflow against the tag from the GitHub UI:
+   - This repo on github.com → **Actions** tab → **Release** workflow in the left sidebar.
+   - Click the **Run workflow** dropdown on the right.
+   - **Use workflow from**: pick **Tags → `v1.2.0-rc1`** (not a branch).
+   - **Tag to build**: enter `v1.2.0-rc1`.
+   - Click **Run workflow**. Refresh after a few seconds to see the run, then open it to follow the logs until it goes green (or red).
+
+  (CLI equivalent if `gh` is ever available: `gh workflow run release.yml --ref v1.2.0-rc1 -f tag=v1.2.0-rc1 && gh run watch`.)
 
 Verify in order:
 
@@ -115,17 +120,22 @@ Verify in order:
 3. The latest commit on `krishgok/localdevstack/main` is from the release workflow and updates `Formula/localdevstack.rb` + `bucket/localdevstack.json` to the new version + the published binary hashes.
 4. `brew install krishgok/localdevstack/localdevstack` and `scoop install localdevstack` resolve to the new version on a fresh machine.
 
-When all four are green, tear down the rc artifacts in both repos before tagging the real release:
+When all four are green, tear down the rc artifacts in both repos before tagging the real release.
+
+**On the mirror (`krishgok/localdevstack`) via github.com:**
+
+1. **Releases** (right sidebar of the repo home) → click the `v1.2.0-rc1` release → trash-can icon → **Delete**.
+2. After the release is deleted, the tag still exists. **Tags** tab → find `v1.2.0-rc1` → trash-can icon → **Delete tag**. (Or: **Code** dropdown → **Tags** → same row.)
+
+**On this (dev) repo:**
 
 ```bash
-# Delete the GitHub release on the mirror; --cleanup-tag also removes the tag
-# from the mirror, so no separate `git push --delete` is needed against it.
-gh release delete v1.2.0-rc1 --repo krishgok/localdevstack --yes --cleanup-tag
-
-# Delete the tag locally and from this (dev) repo.
+# Delete the tag locally and from the dev repo's remote.
 git tag -d v1.2.0-rc1
 git push origin :refs/tags/v1.2.0-rc1
 ```
+
+(CLI equivalent for the mirror cleanup if `gh` is ever available: `gh release delete v1.2.0-rc1 --repo krishgok/localdevstack --yes --cleanup-tag`.)
 
 ### Per-release source sync to the mirror
 
