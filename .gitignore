@@ -12,6 +12,7 @@ local.properties
 *.jar
 *.war
 out/
+!gradle/wrapper/gradle-wrapper.jar
 
 # ===== Environment / Secrets =====
 .env
