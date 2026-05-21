@@ -12,7 +12,11 @@ case "${OS}" in
   darwin)
     case "${ARCH}" in
       arm64)  PLATFORM="macos-arm64" ;;
-      x86_64) PLATFORM="macos-x64"   ;;
+      x86_64)
+        echo "Intel macOS pre-built binaries are no longer published."
+        echo "Build from source via Homebrew: brew install --build-from-source krishgok/localdevstack/localdevstack"
+        exit 1
+        ;;
       *)      echo "Unsupported architecture: ${ARCH}"; exit 1 ;;
     esac
     ;;

@@ -67,32 +67,11 @@ jobs:
           name: linux-x64
           path: localdevstack-*-linux-x64.tar.gz*
 
-  build-macos-x64:
-    needs: test
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '21'
-          distribution: 'graalvm-community'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build native image
-        run: ./gradlew nativeCompile
-      # No smoke test: macOS GitHub runners don't ship Docker, and the CLI's
-      # Docker availability probe would exit before any generators run. The
-      # Linux job smoke-tests the same Kotlin->native binary; macOS coverage
-      # is reduced to "nativeCompile succeeds." Matches the Windows job below.
-      - name: Package artifact
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          cp build/native/nativeCompile/localdevstack localdevstack-macos-x64
-          tar czf localdevstack-${VERSION}-macos-x64.tar.gz localdevstack-macos-x64
-          shasum -a 256 localdevstack-${VERSION}-macos-x64.tar.gz > localdevstack-${VERSION}-macos-x64.tar.gz.sha256
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-x64
-          path: localdevstack-*-macos-x64.tar.gz*
+  # build-macos-x64 was removed when GitHub retired the macos-13 runner image
+  # (only the latest two macOS versions stay supported, and no free Intel macOS
+  # runner exists in its place). Apple stopped selling Intel Macs in 2023, so
+  # arm64-only macOS coverage is the trade-off; Intel mac users build from
+  # source via `brew install --build-from-source localdevstack`.
 
   build-macos-arm64:
     needs: test
@@ -128,10 +107,14 @@ jobs:
           java-version: '21'
           distribution: 'graalvm-community'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          # native-image on Windows shells out to cl.exe / link.exe; without
-          # this flag the runner's Visual Studio Build Tools are installed but
-          # vcvars64 is not on PATH and native-image exits with code 20.
-          native-image-msvc: 'true'
+      # native-image on Windows shells out to cl.exe / link.exe and needs the
+      # MSVC developer environment loaded. setup-graalvm's `native-image-msvc`
+      # flag is unreliable on windows-latest (still fails with "vcvarsall.bat
+      # not found"). ilammy/msvc-dev-cmd directly invokes vcvarsall.bat and
+      # exports the env vars to the rest of the job, which works consistently.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       - name: Build native image
         run: ./gradlew nativeCompile
       - name: Package artifact
@@ -148,7 +131,7 @@ jobs:
           path: localdevstack-*-windows-x64.zip*
 
   publish:
-    needs: [build-linux, build-macos-x64, build-macos-arm64, build-windows]
+    needs: [build-linux, build-macos-arm64, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -170,9 +153,9 @@ jobs:
             --generate-notes \
             dist/*
 
-          # Update Homebrew formula
+          # Update Homebrew formula (arm64 macOS + linux-x64; Intel macOS was
+          # dropped when the macos-13 runner was retired — see build job above).
           SHA_ARM64=$(cat dist/localdevstack-${VERSION}-macos-arm64.tar.gz.sha256 | awk '{print $1}')
-          SHA_X64=$(cat dist/localdevstack-${VERSION}-macos-x64.tar.gz.sha256 | awk '{print $1}')
           SHA_LINUX=$(cat dist/localdevstack-${VERSION}-linux-x64.tar.gz.sha256 | awk '{print $1}')
 
           git clone https://x-access-token:${DIST_TOKEN}@github.com/krishgok/localdevstack.git dist-repo/
@@ -181,8 +164,6 @@ jobs:
           sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/localdevstack.rb
           sed -i "s|url \".*macos-arm64.*\"|url \"https://github.com/krishgok/localdevstack/releases/download/v${VERSION}/localdevstack-${VERSION}-macos-arm64.tar.gz\"|" Formula/localdevstack.rb
           sed -i "s/sha256 \".*\" # arm64/sha256 \"${SHA_ARM64}\" # arm64/" Formula/localdevstack.rb
-          sed -i "s|url \".*macos-x64.*\"|url \"https://github.com/krishgok/localdevstack/releases/download/v${VERSION}/localdevstack-${VERSION}-macos-x64.tar.gz\"|" Formula/localdevstack.rb
-          sed -i "s/sha256 \".*\" # x64/sha256 \"${SHA_X64}\" # x64/" Formula/localdevstack.rb
           sed -i "s|url \".*linux-x64.*\"|url \"https://github.com/krishgok/localdevstack/releases/download/v${VERSION}/localdevstack-${VERSION}-linux-x64.tar.gz\"|" Formula/localdevstack.rb
           sed -i "s/sha256 \".*\" # linux-x64/sha256 \"${SHA_LINUX}\" # linux-x64/" Formula/localdevstack.rb
 

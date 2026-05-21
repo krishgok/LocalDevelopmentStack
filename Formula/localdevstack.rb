@@ -9,10 +9,8 @@ class Localdevstack < Formula
       url "https://github.com/krishgok/localdevstack/releases/download/v1.1.0/localdevstack-1.1.0-macos-arm64.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000" # arm64
     end
-    on_intel do
-      url "https://github.com/krishgok/localdevstack/releases/download/v1.1.0/localdevstack-1.1.0-macos-x64.tar.gz"
-      sha256 "0000000000000000000000000000000000000000000000000000000000000000" # x64
-    end
+    # Intel macOS users build from source: `brew install --build-from-source localdevstack`.
+    # Pre-built x64 binaries were dropped when GitHub retired the macos-13 runner.
   end
 
   on_linux do
@@ -24,12 +22,7 @@ class Localdevstack < Formula
 
   def install
     on_macos do
-      on_arm do
-        bin.install "localdevstack-macos-arm64" => "localdevstack"
-      end
-      on_intel do
-        bin.install "localdevstack-macos-x64" => "localdevstack"
-      end
+      bin.install "localdevstack-macos-arm64" => "localdevstack"
     end
     on_linux do
       bin.install "localdevstack-linux-x64" => "localdevstack"

@@ -72,34 +72,36 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ## Commands
 
+All commands use the Gradle wrapper (`./gradlew` on macOS/Linux, `gradlew.bat` on Windows) — the wrapper is committed to the repo and pins Gradle 8.11.1. Examples below use the POSIX form; substitute `gradlew.bat` on Windows.
+
 Build a runnable fat JAR:
 
 ```
-gradle shadowJar
+./gradlew shadowJar
 ```
 
 Run directly via Gradle (new service scaffold, defaults):
 
 ```
-gradle run
+./gradlew run
 ```
 
 Run with explicit options:
 
 ```
-gradle run --args="--service go --database postgres --output ./my-stack --name my-api"
+./gradlew run --args="--service go --database postgres --output ./my-stack --name my-api"
 ```
 
 Wrap an existing service directory:
 
 ```
-gradle run --args="--existing-dir ./my-existing-service --database postgres"
+./gradlew run --args="--existing-dir ./my-existing-service --database postgres"
 ```
 
 Generate with migration scaffolding (Flyway example):
 
 ```
-gradle run --args="--service go --database postgres --migration flyway --output ./my-stack --name my-api"
+./gradlew run --args="--service go --database postgres --migration flyway --output ./my-stack --name my-api"
 ```
 
 Run the built JAR:
@@ -111,15 +113,23 @@ java -jar build/libs/LocalDevelopmentStack-1.0.0.jar --help
 Run the test suite:
 
 ```
-gradle test
+./gradlew test
 ```
 
 Run a single test class or method:
 
 ```
-gradle test --tests "com.localdevstack.LocalDevStackCliTest"
-gradle test --tests "com.localdevstack.LocalDevStackCliTest.removing migration tool on regenerate yields compose without migrate block"
+./gradlew test --tests "com.localdevstack.LocalDevStackCliTest"
+./gradlew test --tests "com.localdevstack.LocalDevStackCliTest.removing migration tool on regenerate yields compose without migrate block"
 ```
+
+### Build environment invariants
+
+- **Gradle wrapper is the canonical entry point**, not a system `gradle`. `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, and `gradle/wrapper/gradle-wrapper.properties` are all committed. Don't delete them and don't replace with `gradle` invocations in scripts/CI.
+- **`.gitignore` has `*.jar` followed by `!gradle/wrapper/gradle-wrapper.jar`**. If you regenerate the wrapper (e.g. `gradle wrapper --gradle-version X`), the JAR will look untracked until the negation catches it — don't drop the negation, and verify `git check-ignore -v gradle/wrapper/gradle-wrapper.jar` shows the negation winning before pushing.
+- **`.gitattributes` pins `gradlew` to LF and `gradle-wrapper.jar` to binary.** On Windows hosts with `core.autocrlf=true`, removing these rules will corrupt the shebang on Linux runners (`#!/bin/sh\r\n`) or the JAR on commit.
+- **`gradlew` must keep the executable bit in the git index** (mode `100755`). On Windows-only checkouts, set it via `git update-index --chmod=+x gradlew` whenever the file is re-added.
+- **`settings.gradle.kts` applies the Foojay toolchain resolver.** This auto-provisions JDK 17 (requested by `build.gradle.kts:39`'s `jvmToolchain(17)`) on hosts that only have a newer JDK installed — including the CI Windows runner, which only sets up GraalVM 21. Removing the plugin re-introduces "No locally installed toolchains match" failures.
 
 ## Architecture
 

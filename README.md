@@ -24,6 +24,8 @@ brew tap krishgok/localdevstack
 brew install localdevstack
 ```
 
+> **Platform support.** Pre-built binaries are published for **macOS arm64** (Apple Silicon), **Linux x64**, and **Windows x64**. Intel macOS is not shipped as a pre-built binary — `brew install` on an Intel Mac returns "no bottle available". Intel mac users should clone https://github.com/krishgok/localdevstack and build locally with GraalVM 21 (`./gradlew nativeCompile`). This split reflects Apple having stopped selling Intel Macs in 2023 and GitHub Actions retiring its free Intel macOS runner.
+
 ### Windows — Scoop
 
 ```powershell
