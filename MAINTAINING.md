@@ -76,8 +76,10 @@ git log --name-only --oneline | head -40
 ls -la
 
 # 4. Push to the mirror. `--force` is required for filter-repo output.
+# The scratch clone's branch is `master` (inherited from the dev repo); the mirror's
+# default branch is `main`, so use a refspec to push local master → remote main.
 git remote add mirror https://github.com/krishgok/localdevstack.git
-git push --force mirror main
+git push --force mirror master:main
 git push --force mirror --tags
 ```
 
@@ -116,7 +118,7 @@ git filter-repo --invert-paths \
   --path-glob 'sweep*.out' \
   --path-glob 'smoke-*'
 git remote add mirror https://github.com/krishgok/localdevstack.git
-git push --force mirror main
+git push --force mirror master:main    # local master → remote main (mirror's default branch)
 git push mirror --tags    # no --force on tags; collisions mean someone retagged manually
 ```
 
