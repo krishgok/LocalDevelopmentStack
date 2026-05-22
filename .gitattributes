@@ -8,6 +8,7 @@
 CLAUDE.md                   export-ignore
 MAINTAINING.md              export-ignore
 gen-build-deploy-tests/     export-ignore
+docs/maintainer/            export-ignore
 
 # Gradle wrapper line endings — gradlew must stay LF for Linux/macOS runners.
 gradlew                     text eol=lf
