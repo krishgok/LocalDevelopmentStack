@@ -13,7 +13,7 @@ The project uses two Git repositories. Both are public under Apache 2.0; the spl
 | Repo                              | Audience                   | Contents                                                                                                                                  |
 |-----------------------------------|----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | This repo (development)           | Maintainers + contributors | Full Kotlin source, Gradle build, CI workflows, `CLAUDE.md`, `MAINTAINING.md` (this file), `docs/maintainer/`, `gen-build-deploy-tests/`. |
-| `krishgok/localdevstack` (mirror) | End users                  | Same source + `LICENSE`, `README.md`, `CONTRIBUTING.md`, `docs/db-connections.md`, `Formula/`, `bucket/`, `scripts/`. Native binaries published as GitHub release assets. |
+| `krishgok/localdevstack` (mirror) | End users                  | Same source + `LICENSE`, `README.md`, `CONTRIBUTING.md`, `docs/` (excluding `docs/maintainer/`), `Formula/`, `bucket/`, `scripts/`. Native binaries published as GitHub release assets. |
 
 **What stays out of the public mirror:**
 

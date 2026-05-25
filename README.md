@@ -1,364 +1,301 @@
-# LocalDevelopmentStack
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="LocalDevelopmentStack" width="100%">
+</p>
 
-Instantly scaffold a containerised local development environment for any service and database — with a single command.
+<h1 align="center">LocalDevelopmentStack</h1>
 
-Two modes — both produce a stack that comes up with a single `docker-compose up --build`:
+<p align="center">
+  <strong>Spin up a production-shaped local stack in 30 seconds.</strong><br>
+  One command generates a Dockerised service + database + hot-reload. Nine languages, eight databases, no JVM required.
+</p>
 
-- **New service** — generates a complete runnable service + `Dockerfile.dev` + `docker-compose.yml` from scratch. Hot-reload enabled.
-- **Existing service** — wraps your existing code with a `Dockerfile.dev` + `docker-compose.yml`. Hot-reload is enabled; source changes are picked up automatically inside the container.
+<p align="center">
+  <a href="https://github.com/krishgok/LocalDevelopmentStack/actions/workflows/release.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/krishgok/LocalDevelopmentStack/release.yml?branch=master&style=flat-square&label=build"></a>
+  <a href="https://github.com/krishgok/localdevstack/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/krishgok/localdevstack?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square">
+  <a href="#install"><img alt="Homebrew tap" src="https://img.shields.io/badge/brew-tap-orange?style=flat-square"></a>
+</p>
 
-Optional **database migrations** — pass `--migration <tool>` (Flyway, Liquibase, migrate-mongo, golang-migrate) to scaffold an example migration plus a one-shot `migrate:` service that runs on demand via `docker-compose run --rm migrate`.
+<p align="center">
+  <code>brew install krishgok/localdevstack/localdevstack</code> &nbsp;·&nbsp; <code>localdevstack --service go --database postgres</code>
+</p>
 
-Optional **companion services** — pass `--with mailhog,minio` to include a local SMTP catcher (MailHog) and/or an S3-compatible object store (MinIO) alongside your service.
+<!--
+  The demo GIF is produced from docs/assets/demo.tape. After running
+  `vhs docs/assets/demo.tape` once and committing the resulting GIF,
+  uncomment the block below to embed it.
+-->
+  <p align="center">
+    <img src="docs/assets/demo.gif" alt="30-second demo: generate a Go + Postgres stack and curl /health" width="100%">
+  </p>
 
-> **No JVM required.** LocalDevelopmentStack is distributed as a self-contained native binary.
 
 ---
 
-## Installation
+## Before / After
 
-### macOS / Linux — Homebrew
+<table>
+<tr>
+<th align="left" width="50%">Before — hand-roll the stack</th>
+<th align="left" width="50%">After — one command</th>
+</tr>
+<tr>
+<td valign="top">
+
+```yaml
+# docker-compose.yml — write from scratch
+services:
+  service:
+    build:
+      context: ./service
+      dockerfile: Dockerfile.dev
+    ports: ["8080:8080"]
+    environment:
+      DATABASE_URL: postgresql://...
+    volumes: [".:/app"]
+    depends_on:
+      db: { condition: service_healthy }
+  db:
+    image: postgres:16
+    # ... env, ports, volume, healthcheck...
+```
+
+Plus: write `Dockerfile.dev` with the right hot-reload tool, manage `.env`, add `.gitignore` rules, debug compose healthcheck timing — repeat for every new project.
+
+</td>
+<td valign="top">
+
+```bash
+localdevstack \
+  --service go \
+  --database postgres \
+  --output ./my-api
+```
+
+```text
+my-api/
+├── service/
+│   ├── main.go
+│   └── Dockerfile.dev
+├── docker-compose.yml
+├── .env  /  .env.example
+└── .gitignore
+```
+
+```bash
+cd my-api && docker-compose up --build
+curl http://localhost:8080/health
+# → {"status":"ok"}
+```
+
+</td>
+</tr>
+</table>
+
+---
+
+## Features
+
+|  |  |
+|---|---|
+| ✦ **Hot-reload, everywhere** | Edit source, see it live — no rebuild |
+| ✦ **9 service generators** | Go · Node · Python · Rust · Java · Spring Boot · .NET · PHP · Ruby |
+| ✦ **8 database generators** | Postgres · MySQL · MongoDB · CockroachDB · Redis · MariaDB · SQL Server · Elasticsearch |
+| ✦ **Optional migrations** | Flyway · Liquibase · migrate-mongo · golang-migrate |
+| ✦ **Optional companions** | MailHog (SMTP catcher) · MinIO (S3-compatible store) |
+| ✦ **Native binary** | No JVM, no Docker-in-Docker — one self-contained executable |
+
+---
+
+## Quickstart
+
+### Install
+
+<details><summary><strong>macOS / Linux — Homebrew</strong></summary>
 
 ```bash
 brew tap krishgok/localdevstack
 brew install localdevstack
 ```
 
-> **Platform support.** Pre-built binaries are published for **macOS arm64** (Apple Silicon), **Linux x64**, and **Windows x64**. Intel macOS is not shipped as a pre-built binary — `brew install` on an Intel Mac returns "no bottle available". Intel mac users should clone https://github.com/krishgok/localdevstack and build locally with GraalVM 21 (`./gradlew nativeCompile`). This split reflects Apple having stopped selling Intel Macs in 2023 and GitHub Actions retiring its free Intel macOS runner.
+> Pre-built bottles for **macOS arm64**, **Linux x64**, and **Windows x64**. Intel macOS users: clone the repo and run `./gradlew nativeCompile` (requires GraalVM 21).
 
-### Windows — Scoop
+</details>
+
+<details><summary><strong>Windows — Scoop</strong></summary>
 
 ```powershell
 scoop bucket add localdevstack https://github.com/krishgok/localdevstack
 scoop install localdevstack
 ```
 
-### macOS / Linux — curl
+</details>
+
+<details><summary><strong>macOS / Linux — curl</strong></summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/krishgok/localdevstack/main/scripts/install.sh | bash
 ```
 
-### Windows — PowerShell
+</details>
+
+<details><summary><strong>Windows — PowerShell</strong></summary>
 
 ```powershell
 irm https://raw.githubusercontent.com/krishgok/localdevstack/main/scripts/install.ps1 | iex
 ```
 
----
+</details>
 
-## Usage: Scaffold a new service
-
-Generates source code + `Dockerfile.dev` + `docker-compose.yml` from scratch. Hot-reload is enabled — edit source files and the watcher inside the container recompiles/restarts your service automatically.
-
-**Step 1 — Generate the stack:**
+### First stack in three steps
 
 ```bash
-localdevstack --service go --database postgres --output ./my-project --name my-api
-```
+# 1. Generate
+localdevstack --service go --database postgres --output ./my-api --name my-api
 
-This produces:
+# 2. Run
+cd my-api && docker-compose up --build
 
-```
-my-project/
-├── service/
-│   ├── <generated source files>
-│   └── Dockerfile.dev      ← dev container for your service (hot-reload enabled)
-└── docker-compose.yml      ← your service + the database, fully wired
-```
-
-**Step 2 — Start the full local stack:**
-
-```bash
-cd my-project
-docker-compose up --build
-```
-
-This builds the dev image on first run and starts both the database and your service. Subsequent `docker-compose up` calls skip the build.
-
-**Step 3 — Verify:**
-
-```bash
+# 3. Verify
 curl http://localhost:8080/health
 # → {"status":"ok"}
 ```
 
-**Step 4 — Edit, save, and see changes reload automatically:**
+Edit any file under `service/` — the watcher inside the container picks it up and reloads automatically.
 
-Hot-reload works the same way as in [existing-service mode](#step-4--edit-save-and-see-changes-reload-automatically) — edit a source file under `service/`, the watcher inside the container picks it up. Only re-run `docker-compose up --build` if you change `Dockerfile.dev` itself or add/remove dependencies (e.g. `go.mod`, `package.json`, `requirements.txt`).
-
----
-
-## Usage: Wrap an existing service
-
-Points the tool at your existing code. Generates `Dockerfile.dev` + `docker-compose.yml` so everything runs inside Docker with **hot-reload enabled**.
-
-**Step 1 — Run from or above your service directory:**
+**Two modes:**
 
 ```bash
+# New service     — generates source code + Dockerfile.dev + docker-compose.yml
+localdevstack --service go --database postgres --output ./my-api
+
+# Existing service — auto-detects language, generates Dockerfile.dev + docker-compose.yml
 localdevstack --existing-dir ./my-existing-api --database postgres
 ```
 
-The tool auto-detects the language from your project files. Pass `--service` to override:
-
-```bash
-localdevstack --existing-dir ./my-existing-api --service node --database postgres
-```
-
-**Step 2 — Review the generated files:**
-
-```
-my-existing-api/
-├── <your source files — untouched>
-├── Dockerfile.dev      ← dev container for your service (hot-reload enabled)
-└── docker-compose.yml  ← your service + the database, fully wired
-```
-
-`docker-compose.yml` injects the database connection string as an environment variable (e.g. `DATABASE_URL`) so your service connects to the local database automatically.
-
-**Step 3 — Start the full local stack:**
-
-```bash
-cd my-existing-api
-docker-compose up --build
-```
-
-This builds the dev image on first run. Subsequent `docker-compose up` calls skip the build.
-
-**Step 4 — Edit, save, and see changes reload automatically:**
-
-Hot-reload is enabled — there is no need to run `docker-compose up --build` again after editing source files. The watcher inside the container picks up changes and recompiles/restarts your service automatically.
-
-| Language   | Hot-reload tool                                    |
-|------------|----------------------------------------------------|
-| Go         | [`air`](https://github.com/air-verse/air) (file watcher + incremental rebuild) |
-| Node.js    | [`nodemon`](https://nodemon.io)                    |
-| Python     | `uvicorn --reload`                                 |
-| Ruby       | Rails dev server (auto-reloads) if `bin/rails` or `config/application.rb` exists; otherwise `bundle exec ruby app.rb` (Sinatra) |
-| PHP        | PHP built-in server (serves files on request)      |
-| Spring Boot| `./gradlew bootRun`                                |
-| Java       | `mvn spring-boot:run`                              |
-| .NET       | `dotnet watch run`                                 |
-| Rust       | [`cargo-watch`](https://crates.io/crates/cargo-watch) |
-
-> **When to rebuild:** Run `docker-compose up --build` again only if you change `Dockerfile.dev` itself or add/remove dependencies (e.g. change `go.mod`, `package.json`, `requirements.txt`).
-
-**Step 5 — Verify your service:**
-
-```bash
-curl http://localhost:8080/health   # or your own endpoint
-```
-
-LocalDevelopmentStack does not add or modify any endpoints in your service.
+→ Full walkthrough: **[New service](docs/usage-new-service.md)** · **[Existing service](docs/usage-existing-service.md)**
 
 ---
 
-## Supported service types
+## Architecture
 
-| `--service`  | Language / Framework        | Sentinel file detected        | Default port |
-|--------------|-----------------------------|-------------------------------|--------------|
-| `springboot` | Kotlin + Spring Boot        | `build.gradle.kts`, `build.gradle` | 8080    |
-| `go`         | Go + net/http               | `go.mod`                      | 8080         |
-| `python`     | Python + FastAPI            | `requirements.txt`, `pyproject.toml` | 8080  |
-| `node`       | Node.js + Express           | `package.json`                | 8080         |
-| `rust`       | Rust + Axum                 | `Cargo.toml`                  | 8080         |
-| `dotnet`     | C# + ASP.NET Core 8         | `*.csproj`, `Program.cs`      | 8080         |
-| `java`       | Java 21 + Spring Boot (Maven) | `pom.xml`                   | 8080         |
-| `php`        | PHP 8.2 + built-in server   | `composer.json`               | 8080         |
-| `ruby`       | Ruby 3.2 + Sinatra 4        | `Gemfile`                     | 8080         |
+```mermaid
+flowchart LR
+    User([Developer]) --> CLI[localdevstack<br>native binary]
+    CLI --> Gen[Generators<br>service · db · migration · companion]
+    Gen --> Out[docker-compose.yml<br>Dockerfile.dev<br>.env / .env.example]
+    Out --> Run[docker-compose up --build]
+    Run --> Stack[(Running stack:<br>service · db · migrate · companions)]
+```
 
-The port auto-selects 8080 → 8081 → 8082 if lower ports are occupied. Pass `--port` to set it explicitly.
+`LocalDevStackCli` dispatches via three registry maps — `SERVICES`, `DATABASES`, `COMPANIONS` — and runs each generator into the chosen output directory. Volume-mounted source means **edits hot-reload without rebuilding**.
 
 ---
 
-## Supported database types
+## Who it's for
 
-| `--database`    | Engine            | Version                    | Port  | Injected env var     |
-|-----------------|-------------------|----------------------------|-------|----------------------|
-| `postgres`      | PostgreSQL        | 16                         | 5432  | `DATABASE_URL`       |
-| `mysql`         | MySQL             | 8                          | 3306  | `DATABASE_URL`       |
-| `mongodb`       | MongoDB           | 7                          | 27017 | `MONGODB_URI`        |
-| `cockroachdb`   | CockroachDB       | v23.2                      | 26257 | `DATABASE_URL`       |
-| `redis`         | Redis             | 7-alpine                   | 6379  | `REDIS_URL`          |
-| `mariadb`       | MariaDB           | 11                         | 3306  | `DATABASE_URL`       |
-| `sqlserver`     | SQL Server        | 2022-latest                | 1433  | `DATABASE_URL`       |
-| `elasticsearch` | Elasticsearch     | 8.12                       | 9200  | `ELASTICSEARCH_URL`  |
-
-The injected connection string uses `db` as the hostname — this resolves correctly inside the Docker Compose network.
-
-### Reading the connection in your service
-
-Your service reads the connection string from the environment variable shown in the **Injected env var** column above — not from a hardcoded string or a config file checked into source control. This is standard [12-factor app](https://12factor.net/config) practice and ensures the same code works locally (pointing at Docker) and in production (pointing at your real database) without changes. The injected hostname is always `db`, which resolves to the database container inside the Docker Compose network.
-
-See **[docs/db-connections.md](docs/db-connections.md)** for per-language code snippets — Go, Python, Node, Spring Boot, Rust, PHP, Ruby, .NET, plus Redis and Elasticsearch clients — and a tip on migrating a hardcoded `localhost` host to the env var without breaking your non-Docker workflow.
+- **Solo developers prototyping** — skip the docker-compose boilerplate; get a working stack on a new project in 30 seconds.
+- **Teams onboarding new hires** — commit `docker-compose.yml` + `.env.example`; new joiners run one command and have the full local stack.
+- **Platform / DevEx teams** — standardise local environments across repos without writing a custom CLI or yet-another-internal-template.
 
 ---
 
-## Database migrations (optional)
+## Showcase
 
-Pass `--migration <tool>` to scaffold migration files plus a one-shot `migrate:` service in your generated `docker-compose.yml`. The migrate service is tagged with the `migrations` profile so it does **not** auto-start with `docker-compose up` — you run it explicitly when you want to apply migrations.
+### Service support — 9 languages, one CLI
 
-### Supported tools
+<p>
+  <img alt="Go"          src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white">
+  <img alt="Node.js"     src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white">
+  <img alt="Python"      src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="Rust"        src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white">
+  <img alt="Java"        src="https://img.shields.io/badge/Java-007396?style=for-the-badge&logo=openjdk&logoColor=white">
+  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-6DB33F?style=for-the-badge&logo=springboot&logoColor=white">
+  <img alt=".NET"        src="https://img.shields.io/badge/.NET-512BD4?style=for-the-badge&logo=dotnet&logoColor=white">
+  <img alt="PHP"         src="https://img.shields.io/badge/PHP-777BB4?style=for-the-badge&logo=php&logoColor=white">
+  <img alt="Ruby"        src="https://img.shields.io/badge/Ruby-CC342D?style=for-the-badge&logo=ruby&logoColor=white">
+</p>
 
-| `--migration`    | Compatible databases                                                  | Scaffolds                                                                       |
-|------------------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|
-| `flyway`         | `postgres`, `mysql`, `mariadb`, `sqlserver`, `cockroachdb`            | `migrations/V001__init.sql`                                                     |
-| `liquibase`      | `postgres`, `mysql`, `mariadb`, `sqlserver`                           | `db/changelog/db.changelog-master.sql` (Liquibase formatted SQL)                |
-| `migrate-mongo`  | `mongodb`                                                             | `Dockerfile.migrate` + `migrate-mongo-config.js` + `migrations/0001-init.js`    |
-| `golang-migrate` | `postgres`, `mysql`, `mariadb`, `cockroachdb`, `sqlserver`, `mongodb` | `migrations/000001_init.up.sql` + `000001_init.down.sql` (or `.json` for mongo) |
+Every generated service exposes `GET /health` → `{"status":"ok"}` and ships with the right hot-reload tooling baked in — `air` for Go, `nodemon` for Node, `uvicorn --reload` for Python, `cargo-watch` for Rust, `dotnet watch run` for .NET, and so on.
 
-`redis` and `elasticsearch` do not support migration scaffolding (no schema concept). `cockroachdb` + `liquibase` is rejected because the stock Liquibase image does not ship the CockroachDB driver extension.
+→ **[Sentinel files, framework details, full table](docs/usage-new-service.md)**
 
-### New service with migrations
+### Database support — 8 engines, zero config
 
-```bash
-localdevstack --service go --database postgres --migration flyway --output ./my-project --name my-api
-cd my-project
-docker-compose up --build -d          # service + db (migrate skipped — compose profile)
-docker-compose run --rm migrate       # apply migrations on demand
-```
+<p>
+  <img alt="PostgreSQL"    src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white">
+  <img alt="MySQL"         src="https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white">
+  <img alt="MongoDB"       src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white">
+  <img alt="CockroachDB"   src="https://img.shields.io/badge/CockroachDB-6933FF?style=for-the-badge&logo=cockroachlabs&logoColor=white">
+  <img alt="Redis"         src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white">
+  <img alt="MariaDB"       src="https://img.shields.io/badge/MariaDB-003545?style=for-the-badge&logo=mariadb&logoColor=white">
+  <img alt="SQL Server"    src="https://img.shields.io/badge/SQL%20Server-CC2927?style=for-the-badge&logo=microsoftsqlserver&logoColor=white">
+  <img alt="Elasticsearch" src="https://img.shields.io/badge/Elasticsearch-005571?style=for-the-badge&logo=elasticsearch&logoColor=white">
+</p>
 
-### Existing service with migrations
+Every database container ships with a healthcheck and injects its connection string into your service via a single environment variable. Your code reads one variable; the same code works locally and in production.
 
-```bash
-localdevstack --existing-dir ./my-existing-api --database postgres --migration flyway
-cd my-existing-api
-docker-compose up --build -d          # service + db (migrate skipped)
-docker-compose run --rm migrate       # apply migrations on demand
-```
+→ **[Per-language connection examples](docs/db-connections.md)**
 
-If `migrations/` (or `db/changelog/` for Liquibase, or `Dockerfile.migrate` for migrate-mongo) already exists in the target directory and contains files, the CLI aborts to protect your real migrations. Pass `--force` to overwrite.
+### Migrations — opt-in, one flag
 
-### Adding more migrations
-
-Drop new files into the appropriate directory using your tool's naming convention, then re-run:
-
-```bash
-docker-compose run --rm migrate
-```
-
-| Tool             | Add new migration                                                                     |
-|------------------|---------------------------------------------------------------------------------------|
-| `flyway`         | Create `migrations/V<N>__<name>.sql`                                                  |
-| `liquibase`      | Append a new `--changeset` block to `db/changelog/db.changelog-master.sql`            |
-| `migrate-mongo`  | `docker-compose run --rm migrate create <name>` then edit the generated file         |
-| `golang-migrate` | `docker-compose run --rm migrate create -ext sql -dir /migrations -seq <name>`       |
-
-### Restrictions
-
-- The `migrate:` service is **not** auto-run on `docker-compose up`. Run it explicitly.
-- Your service container does **not** depend on `migrate`. Run migrations before starting your service if your code expects the schema to exist.
-- One migration tool per stack. Switching tools requires regenerating with `--force`.
-- `--name migrate` and `--name db` are rejected when migrations are enabled (would collide with the `migrate:` / `db:` compose service names).
-
----
-
-## Companion services (optional)
-
-Pass `--with <name>[,<name>...]` to include extra dev-only services in `docker-compose.yml`. Both are off by default.
-
-| `--with`  | Image                            | Ports          | Purpose                              | Env vars injected into your service |
-|-----------|----------------------------------|----------------|--------------------------------------|-------------------------------------|
-| `mailhog` | `mailhog/mailhog:v1.0.1`         | `1025`, `8025` | SMTP catcher with a web UI on `:8025`. Capture outgoing email instead of sending it. | `SMTP_HOST=mailhog`, `SMTP_PORT=1025` |
-| `minio`   | `minio/minio:RELEASE.2024-12-18` | `9000`, `9001` | S3-compatible object store with a console on `:9001`. | `S3_ENDPOINT=http://minio:9000`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` |
+| `--migration`     | Tool             | Best for                                                              |
+|-------------------|------------------|-----------------------------------------------------------------------|
+| `flyway`          | Flyway 10        | Versioned SQL on Postgres, MySQL, MariaDB, SQL Server, CockroachDB    |
+| `liquibase`       | Liquibase 4.27   | Richer changelog format, multiple SQL dialects                        |
+| `migrate-mongo`   | migrate-mongo 11 | MongoDB collection migrations                                         |
+| `golang-migrate`  | migrate v4       | One tool, six engines (incl. MongoDB)                                 |
 
 ```bash
-localdevstack --service node --database postgres --with mailhog,minio --output ./my-stack
+localdevstack --service go --database postgres --migration flyway
+docker-compose run --rm migrate     # manual run — uses the `migrations` compose profile
 ```
 
-Companions land in the same `docker-compose.yml` and start with `docker-compose up`. Their default credentials are local-dev values stored in `.env` — change them there, not in compose.
+→ **[docs/migrations.md](docs/migrations.md)**
 
----
+### Companions — drop-in dev services
 
-## Environment file
-
-Every generated stack now ships a `.env` file alongside `docker-compose.yml`:
-
-- **`.env`** — resolved values (database URL, companion credentials). Already added to `.gitignore` so it doesn't get committed.
-- **`.env.example`** — same keys with `<change-me>` placeholders. Safe to commit; use it to onboard new collaborators.
-
-The compose file references each value via `${VAR}`. To rotate credentials, edit `.env` and re-run `docker-compose up`.
-
-In existing-dir mode, `.env` is added to your existing `.gitignore` if missing; your other rules are preserved.
-
----
-
-## Preview without writing files
-
-Pass `--dry-run` to print the resolved plan and the files that would be generated, then exit without touching the filesystem.
+| Companion   | What you get                                                                                                  |
+|-------------|---------------------------------------------------------------------------------------------------------------|
+| **MailHog** | SMTP catcher + web UI on `:8025`. Capture outgoing mail. Auto-injects `SMTP_HOST`, `SMTP_PORT`.               |
+| **MinIO**   | S3-compatible object store + console on `:9001`. Auto-injects `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`. |
 
 ```bash
-localdevstack --service go --database postgres --with minio --dry-run
+localdevstack --service node --database postgres --with mailhog,minio
 ```
 
-Useful before running in `--existing-dir` mode to confirm exactly which files will land in your repo.
+→ **[docs/companions.md](docs/companions.md)**
 
----
+### Power-user flags
 
-## Multi-database setup
+|                          |                                                                                                       |
+|--------------------------|-------------------------------------------------------------------------------------------------------|
+| **Env file management**  | `.env` (gitignored) + `.env.example` (commit-safe) written on every invocation                        |
+| **Dry-run mode**         | `--dry-run` prints the resolved plan and would-be file list without touching the filesystem           |
+| **Multi-database**       | One DB per invocation by default; copy the second `db:` block into your existing compose file         |
+| **`--force`**            | Overwrite existing migrations / compose files when regenerating into the same directory               |
+| **`--port`**             | Pin the service port (default auto-selects 8080 → 8081 → 8082 if lower ports are occupied)            |
 
-One database per invocation by design. To add a second database (e.g. Redis for caching alongside Postgres):
-
-```bash
-# First database — already generated in your service directory:
-localdevstack --existing-dir ./my-api --database postgres
-
-# Second database — generate into a temporary directory:
-localdevstack --existing-dir ./my-api --database redis --output ./tmp-redis
-
-# Copy the 'db:' (redis) service block from tmp-redis/docker-compose.yml
-# into your existing docker-compose.yml under the 'services:' key.
-# Rename the service to avoid collision, e.g. 'redis:'.
-rm -rf ./tmp-redis
-```
+→ **[docs/advanced.md](docs/advanced.md)**
 
 ---
 
 ## Roadmap
 
-Items under active consideration for future releases. Open an issue to vote or propose.
+- **More companions** — Redis-as-cache, Prometheus + Grafana, OpenTelemetry collector + Jaeger
+- **Vector databases** — pgvector, Qdrant, Weaviate
+- **Bigger bets** — Kubernetes output, multi-service composition, interactive `init` wizard
 
-- **More companions** — Redis-as-cache, Prometheus + Grafana, OpenTelemetry collector + Jaeger, pgAdmin / Mongo Express / RedisInsight.
-- **Service variants** — TypeScript Node, Elixir / Phoenix, Bun, Deno.
-- **Vector databases** — pgvector (Postgres extension), Qdrant, Weaviate.
-- **Bigger bets** — Kubernetes output (Helm / Kustomize for `kind` / `k3d`), multi-service composition (`--service go,node`), stack presets, interactive `init` wizard.
-
-Companion proposals are evaluated against five criteria — universal need, zero-config single container, drop-in for a real cloud service, visible UI, mature stable image.
+→ Full list: **[docs/roadmap.md](docs/roadmap.md)**
 
 ---
 
-## Disclaimers & limitations
+## Contributing & support
 
-**Intended use is local development only.**
-Generated artifacts (`Dockerfile.dev`, `docker-compose.yml`, `.env`) are optimised for developer convenience and are not hardened for production. Do not deploy them to shared or production environments without thorough review and changes.
+- **Issues / feature requests** → [github.com/krishgok/localdevstack/issues](https://github.com/krishgok/localdevstack/issues)
+- **Pull requests** → see [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Code of Conduct** → see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Disclaimers & limitations** → see [docs/disclaimers.md](docs/disclaimers.md)
 
-**Default credentials are intentionally insecure.**
-Generated files use well-known development defaults (e.g. `postgres/postgres_dev_only`, `minio_dev/minio_dev_only`). The `.env` file is gitignored to discourage accidental commits, but you are responsible for not exposing local credentials beyond your machine.
-
-**Data is ephemeral.**
-Database and companion data live in named Docker volumes on your machine. Running `docker-compose down -v` permanently deletes all data. Do not use this tool to manage production data.
-
-**Migrations are opt-in and run on demand.**
-The `migrate:` compose service uses the `migrations` profile, so it does **not** auto-start with `docker-compose up`. Invoke it explicitly with `docker-compose run --rm migrate`. Your service container does not depend on `migrate`; run migrations first if your code expects the schema.
-
-**Your existing source code is never modified.**
-In `--existing-dir` mode, LocalDevelopmentStack only writes `Dockerfile.dev`, `docker-compose.yml`, `.env`, `.env.example`, and (idempotently) `.gitignore`. It does not read, parse, or change source files.
-
-**Third-party container images.**
-The generated `docker-compose.yml` references images from Docker Hub, Microsoft Container Registry, and similar third-party registries (Postgres, MySQL, MailHog, MinIO, etc.). Use of those images is governed by their own licenses and terms; this tool does not bundle, modify, or relicense them. You are responsible for compliance.
-
-**Warranty.**
-This software is provided "AS IS", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. To the maximum extent permitted by law, no liability shall attach to the authors or maintainers for damages arising from use of this tool. See the [LICENSE](LICENSE) file.
-
----
-
-## License
-
-Licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) for the full text. The Apache 2.0 license includes an explicit patent grant and the warranty / liability disclaimer summarised above.
-
----
-
-## Support
-
-[Open an issue](https://github.com/krishgok/localdevstack/issues) on the public distribution repository.
-
+Licensed under the [Apache License, Version 2.0](LICENSE).

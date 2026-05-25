@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="LocalDevelopmentStack logo">
+  <defs>
+    <linearGradient id="lds-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#a371f7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded dark tile -->
+  <rect width="200" height="200" rx="32" fill="#0d1117"/>
+
+  <!-- stacked container layers (back-to-front) -->
+  <rect x="40" y="120" width="120" height="28" rx="4" fill="url(#lds-accent)" opacity="0.35"/>
+  <rect x="40" y="86"  width="120" height="28" rx="4" fill="url(#lds-accent)" opacity="0.65"/>
+  <rect x="40" y="52"  width="120" height="28" rx="4" fill="url(#lds-accent)"/>
+
+  <!-- LDS wordmark -->
+  <text x="100" y="178" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700" fill="#f0f6fc" letter-spacing="3">LDS</text>
+</svg>
