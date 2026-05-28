@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/krishgok/LocalDevelopmentStack/actions/workflows/release.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/krishgok/LocalDevelopmentStack/release.yml?branch=master&style=flat-square&label=build"></a>
+  <a href="https://github.com/krishgok/LocalDevelopmentStack/actions/workflows/ci.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/krishgok/LocalDevelopmentStack/ci.yml?branch=master&style=flat-square&label=build"></a>
   <a href="https://github.com/krishgok/localdevstack/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/krishgok/localdevstack?style=flat-square"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square">

@@ -42,15 +42,7 @@ git clone --no-local . /tmp/ldstack-mirror-sync
 cd /tmp/ldstack-mirror-sync
 
 # 2. Strip maintainer-only paths from history.
-git filter-repo --invert-paths \
-  --path CLAUDE.md \
-  --path MAINTAINING.md \
-  --path .gitattributes \
-  --path gen-build-deploy-tests/ \
-  --path docs/maintainer/ \
-  --path-glob 'claude-test-*' \
-  --path-glob 'sweep*.out' \
-  --path-glob 'smoke-*'
+git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
 
 # 3. Verify the filtered tree looks right (no mirror-excluded files present).
 git log --name-only --oneline | head -40
@@ -129,15 +121,7 @@ The CI release workflow only publishes binaries + updates the formula/manifest â
 rm -rf /tmp/ldstack-mirror-sync
 git clone --no-local . /tmp/ldstack-mirror-sync
 cd /tmp/ldstack-mirror-sync
-git filter-repo --invert-paths \
-  --path CLAUDE.md \
-  --path MAINTAINING.md \
-  --path .gitattributes \
-  --path gen-build-deploy-tests/ \
-  --path docs/maintainer/ \
-  --path-glob 'claude-test-*' \
-  --path-glob 'sweep*.out' \
-  --path-glob 'smoke-*'
+git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
 git remote add mirror https://github.com/krishgok/localdevstack.git
 git push --force mirror master:main    # local master â†’ remote main (mirror's default branch)
 git push mirror --tags    # no --force on tags; collisions mean someone retagged manually
