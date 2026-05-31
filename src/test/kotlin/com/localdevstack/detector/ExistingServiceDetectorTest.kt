@@ -28,11 +28,26 @@ class ExistingServiceDetectorTest {
         "composer.json,     php",
         "package.json,      node",
         "requirements.txt,  python",
-        "pyproject.toml,    python"
+        "pyproject.toml,    python",
+        "Program.cs,        dotnet"
     )
     fun `detects language from sentinel file`(sentinel: String, expectedType: String) {
         Files.writeString(tempDir.resolve(sentinel), "placeholder")
         assertEquals(expectedType, ExistingServiceDetector.detect(tempDir))
+    }
+
+    @Test
+    fun `detects dotnet from arbitrary csproj filename (no Program cs)`() {
+        Files.writeString(tempDir.resolve("MyApi.csproj"), "<Project/>")
+        assertEquals("dotnet", ExistingServiceDetector.detect(tempDir))
+    }
+
+    @Test
+    fun `dotnet csproj plus Program cs both resolve cleanly to dotnet not polyglot`() {
+        Files.writeString(tempDir.resolve("Program.cs"), "// placeholder")
+        Files.writeString(tempDir.resolve("MyApi.csproj"), "<Project/>")
+        // Both indicators point at the same type — should not throw
+        assertEquals("dotnet", ExistingServiceDetector.detect(tempDir))
     }
 
     @Test

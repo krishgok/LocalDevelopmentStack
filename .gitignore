@@ -37,7 +37,9 @@ tmp/
 claude-test-stack*/
 claude-test-results.tsv
 claude-test-results-companions.tsv
+claude-test-results-existing.tsv
 claude-test-logs/
+claude-test-logs-existing/
 sweep*.out
 my-test-stack/
 
