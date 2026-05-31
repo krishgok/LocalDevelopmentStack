@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a new capability or improvement
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening, please check the [Roadmap](https://github.com/krishgok/LocalDevelopmentStack/blob/master/docs/roadmap.md) and existing issues for duplicates.
+
+        For requests to support a new **service language**, **database engine**, **migration tool**, or **companion service**, please use the "New service/database/migration/companion" template instead — it has the structured fields needed to evaluate the request.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What pain point or limitation prompts this request?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would the change look like? CLI shape, flag name, generator behaviour, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried, or other approaches the request rules out
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to open a PR for this myself

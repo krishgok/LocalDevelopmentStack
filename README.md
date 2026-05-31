@@ -21,6 +21,11 @@
   <code>brew install krishgok/localdevstack/localdevstack</code> &nbsp;·&nbsp; <code>localdevstack --service go --database postgres</code>
 </p>
 
+<p align="center">
+  <em>Every new project means writing <code>docker-compose.yml</code> from scratch, picking a hot-reload tool, wiring a DB connection string, and chasing healthcheck timing.<br>
+  LocalDevelopmentStack does all of that for you — deterministically, across 9 languages and 8 databases.</em>
+</p>
+
 <!--
   The demo GIF is produced from docs/assets/demo.tape. After running
   `vhs docs/assets/demo.tape` once and committing the resulting GIF,
@@ -105,6 +110,7 @@ curl http://localhost:8080/health
 | ✦ **Optional migrations** | Flyway · Liquibase · migrate-mongo · golang-migrate |
 | ✦ **Optional companions** | MailHog (SMTP catcher) · MinIO (S3-compatible store) |
 | ✦ **Native binary** | No JVM, no Docker-in-Docker — one self-contained executable |
+| ✦ **Battle-tested in CI** | Each release runs `docker compose up --build` + `curl /health` across **72 service × database combinations** before binaries ship |
 
 ---
 
@@ -174,6 +180,22 @@ localdevstack --service go --database postgres --output ./my-api
 localdevstack --existing-dir ./my-existing-api --database postgres
 ```
 
+**More combinations:**
+
+```bash
+# Python (FastAPI) + MongoDB + migrate-mongo migrations
+localdevstack --service python --database mongodb --migration migrate-mongo --output ./api
+
+# Rust (Axum) + Redis + MinIO (S3-compatible object store)
+localdevstack --service rust --database redis --with minio --output ./cache-svc
+
+# Spring Boot + SQL Server + Liquibase changelogs + MailHog (SMTP catcher)
+localdevstack --service springboot --database sqlserver --migration liquibase --with mailhog --output ./platform-api
+
+# Preview only — print the resolved plan without writing files
+localdevstack --service node --database mariadb --with mailhog --output ./api --dry-run
+```
+
 → Full walkthrough: **[New service](docs/usage-new-service.md)** · **[Existing service](docs/usage-existing-service.md)**
 
 ---
@@ -198,6 +220,21 @@ flowchart LR
 - **Solo developers prototyping** — skip the docker-compose boilerplate; get a working stack on a new project in 30 seconds.
 - **Teams onboarding new hires** — commit `docker-compose.yml` + `.env.example`; new joiners run one command and have the full local stack.
 - **Platform / DevEx teams** — standardise local environments across repos without writing a custom CLI or yet-another-internal-template.
+
+---
+
+## Why this over the alternatives
+
+| Tool                                            | Scope                          | Host-side toolchain?         | K8s required? | Hot-reload baked in?      | One command brings up DB + service? |
+|-------------------------------------------------|--------------------------------|------------------------------|---------------|---------------------------|-------------------------------------|
+| **LocalDevelopmentStack**                       | docker-compose dev stacks      | No — service runs in container | No          | Yes — per language        | Yes                                 |
+| Hand-rolled compose                             | docker-compose                 | Up to you                    | No            | DIY per language          | No                                  |
+| `docker init`                                   | single Dockerfile (no DB)      | No                           | No            | Sometimes                 | No                                  |
+| Tilt / Skaffold                                 | Kubernetes dev loops           | Yes (`kubectl`)              | Yes           | Yes                       | Yes (different scope)               |
+| Nix / devbox / mise                             | host-side env management       | Replaces it (no Docker)      | No            | N/A                       | N/A                                 |
+| `create-t3-app`, `cookiecutter`, framework CLIs | language-specific scaffolds    | Yes                          | No            | Varies                    | No (files only; no DB)              |
+
+The differentiator: **compose-native, no Kubernetes, no host language toolchain required.** The 72-combo CI sweep (noted in [Features](#features) above) means every supported `(language, database)` pair has been built and `/health`-checked at least once per release.
 
 ---
 
@@ -293,9 +330,11 @@ localdevstack --service node --database postgres --with mailhog,minio
 
 ## Contributing & support
 
-- **Issues / feature requests** → [github.com/krishgok/localdevstack/issues](https://github.com/krishgok/localdevstack/issues)
+- **Using with an AI assistant?** → see [AGENTS.md](AGENTS.md) for invocation patterns and canned prompts
+- **Issues / feature requests** → [github.com/krishgok/LocalDevelopmentStack/issues](https://github.com/krishgok/LocalDevelopmentStack/issues) (templates for bug reports, feature requests, and new-type requests)
 - **Pull requests** → see [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Code of Conduct** → see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Security vulnerabilities** → see [SECURITY.md](SECURITY.md) (private reporting via the GitHub Security tab)
+- **Code of Conduct** → see [CONTRIBUTING.md § Code of conduct](CONTRIBUTING.md#code-of-conduct)
 - **Disclaimers & limitations** → see [docs/disclaimers.md](docs/disclaimers.md)
 
 Licensed under the [Apache License, Version 2.0](LICENSE).

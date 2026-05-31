@@ -1,0 +1,46 @@
+name: New service / database / migration / companion request
+description: Request support for a new generator type (Elixir, Cassandra, Atlas, Kafka, etc.)
+title: "[New type]: "
+labels: ["new-type"]
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: What kind of new type?
+      options:
+        - Service language (e.g. Elixir, Scala, Clojure, Kotlin-Ktor)
+        - Database engine (e.g. Cassandra, ScyllaDB, ClickHouse, ArangoDB)
+        - Migration tool (e.g. Atlas, sqlx-migrate, dbmate)
+        - Companion service (e.g. Kafka, RabbitMQ, Prometheus, Jaeger, Redpanda)
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Type / tool name
+      placeholder: e.g. "Elixir + Phoenix" or "Atlas" or "Kafka (Redpanda flavour)"
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Why this fits LocalDevelopmentStack
+      description: |
+        - For **services** — what hot-reload tool, what does the canonical `/health` endpoint look like, what base Docker image?
+        - For **databases** — official Docker image, port, healthcheck command, single env-var pattern for connection string?
+        - For **migration tools** — compatible databases, official image, scaffold file layout (versioned SQL? changelog YAML? JS?)
+        - For **companions** — does it score against the "five criteria" in the brainstorm? (universal need, zero-config single container, drop-in for a real cloud service, visible UI, mature stable image)
+    validations:
+      required: true
+  - type: textarea
+    id: minimal-example
+    attributes:
+      label: Minimal working example
+      description: Paste a Dockerfile / compose snippet you've used for this elsewhere, if you have one
+      render: yaml
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to open a PR adding this myself (see the [extending guide](https://github.com/krishgok/LocalDevelopmentStack/blob/master/docs/maintainer/extending.md))

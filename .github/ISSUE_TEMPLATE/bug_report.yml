@@ -1,0 +1,53 @@
+name: Bug report
+description: Report something that doesn't work as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. If possible, run the failing command with `--dry-run` and include the output — it shows what the tool *would* do, which often localises the bug quickly.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe vs. what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Failing command (and `--dry-run` output, if relevant)
+      render: bash
+      placeholder: localdevstack --service go --database postgres --output ./api
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `localdevstack --version`, or the release/commit you built from
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / Docker version
+      placeholder: macOS 14.5 / Docker Desktop 4.30, or Linux x86_64 / docker 24.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: Paste the full error message and stack trace, if any
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched existing issues for duplicates
+          required: true
+        - label: I am running the latest release (or a recent `master` build)
+          required: true
