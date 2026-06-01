@@ -14,7 +14,7 @@ import java.util.logging.Level
 @Command(
     name = "localdevstack",
     mixinStandardHelpOptions = true,
-    version = ["1.2.0"],
+    version = ["1.2.1"],
     description = [
         "Scaffold a local development stack with a service and database.",
         "Supports new service generation or wrapping an existing service directory."

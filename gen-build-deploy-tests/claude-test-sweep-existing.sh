@@ -12,7 +12,7 @@
 
 set -u
 
-JAR="build/libs/LocalDevelopmentStack-1.2.0.jar"
+JAR="build/libs/LocalDevelopmentStack-1.2.1.jar"
 STACK_DIR="claude-test-stack-existing-v1"
 FIXTURES_DIR="gen-build-deploy-tests/existing-fixtures"
 RESULTS="claude-test-results-existing.tsv"

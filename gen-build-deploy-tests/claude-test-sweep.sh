@@ -5,7 +5,7 @@
 
 set -u
 
-JAR="build/libs/LocalDevelopmentStack-1.2.0.jar"
+JAR="build/libs/LocalDevelopmentStack-1.2.1.jar"
 STACK_DIR="claude-test-stack-v3"
 RESULTS="claude-test-results.tsv"
 LOGS_DIR="claude-test-logs"
