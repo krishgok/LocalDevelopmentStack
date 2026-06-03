@@ -41,10 +41,13 @@ Use `git-filter-repo` on a scratch clone — never run `filter-repo` on your mai
 git clone --no-local . /tmp/ldstack-mirror-sync
 cd /tmp/ldstack-mirror-sync
 
-# 2. Strip maintainer-only paths AND CI-managed paths from history.
+# 2. Strip maintainer-only paths AND .github/workflows/ from history.
 #    .github/workflows/ — the mirror must not run CI; release.yml triggers only in the dev repo.
-#    Formula/ + bucket/ — owned by release.yml's publish step on the mirror; source-sync must not roll them back.
-git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path .github/workflows/ --path Formula/ --path bucket/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
+#    NOTE: Formula/ and bucket/ are NOT excluded. They are synced from the dev repo
+#    to the mirror like normal source, but the per-release sync requires a pre-sync
+#    step (see below) to pull the mirror's release.yml-pushed values back into the
+#    dev repo first — otherwise the force-push rolls them back to stale copies.
+git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path .github/workflows/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
 
 # 3. Verify the filtered tree looks right (no mirror-excluded files present).
 git log --name-only --oneline | head -40
@@ -58,10 +61,12 @@ git push --force mirror master:main
 git push --force mirror --tags
 ```
 
-The filter list must stay in sync with the `.gitattributes` `export-ignore` patterns at the repo root — when you add a new mirror-excluded path, update both. Two distinct reasons drive entries on these lists:
+The filter list must stay in sync with the `.gitattributes` `export-ignore` patterns at the repo root — when you add a new mirror-excluded path, update both.
 
 - **Maintainer-only paths** (`CLAUDE.md`, `MAINTAINING.md`, `.gitattributes`, `gen-build-deploy-tests/`, `docs/maintainer/`, `claude-test-*`, `sweep*.out`, `smoke-*`) — kept private to the dev repo.
-- **CI-managed paths on the mirror** (`.github/workflows/`, `Formula/`, `bucket/`) — owned by `release.yml`'s publish step, which clones the mirror and commits to these directly. If source-sync includes them, the next `git push --force` rewinds the mirror's main and loses whatever the release workflow just pushed (observed in the v1.2.1 incident: formula reverted to v1.1.0 placeholders, brew install broke). `.github/workflows/` is excluded so the mirror's Actions tab stays quiet — the only release workflow that should run lives in the dev repo; the mirror's copy would re-trigger on every tag push and fail (Windows build is unreliable on the mirror because `.gitattributes` is filter-excluded, which corrupts the wrapper JAR on Windows runners).
+- **Mirror CI suppression** (`.github/workflows/`) — strips workflow files from the mirror so its Actions tab stays quiet. Only the dev repo runs `release.yml`; the mirror's copy would re-trigger on every tag push and fail (Windows build is unreliable on the mirror because `.gitattributes` is filter-excluded, which corrupts the wrapper JAR on Windows runners).
+
+> ⚠ **`Formula/` and `bucket/` are NOT excluded.** They are synced like normal source. But `release.yml`'s publish step writes them on the mirror, so after each release the mirror is *ahead* of the dev repo for those two files. Without the pre-sync step below, the next source-sync's `git push --force` rewinds the mirror to the dev repo's stale copies and breaks `brew install` / `scoop install` (observed in the v1.2.1 incident).
 
 ### 4. Seed the package-manager artifacts on the mirror
 
@@ -121,12 +126,28 @@ git push origin :refs/tags/v1.2.0-rc1
 
 The CI release workflow only publishes binaries + updates the formula/manifest — it does **not** push source code to the mirror. Source sync is a manual step on each release (or as often as you want — the mirror's source view can lag behind the dev repo without affecting binary distribution).
 
+### Step 0 (pre-sync): pull release-managed paths from the mirror
+
+After `release.yml` turns green, the mirror's `Formula/localdevstack.rb` and `bucket/localdevstack.json` have been updated to the new version + real SHAs. The dev repo's copies are still at the previous release's values. **You must pull the mirror's fresher copies into the dev repo before running the sync**, otherwise the force-push rolls the mirror back. Run this in the dev repo working tree:
+
 ```bash
-# Run after pushing a release tag and the CI workflow turns green.
+git fetch https://github.com/krishgok/localdevstack.git main:_mirror_main_tmp
+git checkout _mirror_main_tmp -- Formula/localdevstack.rb bucket/localdevstack.json
+git status                                    # verify exactly two files are staged with the new version
+git commit -m "sync formula and manifest from mirror v<VERSION>"
+git push origin master
+git branch -D _mirror_main_tmp
+```
+
+If `git status` shows no changes, the mirror's formula+manifest already match — the release workflow hasn't run yet, or this sync was already done. Skip the rest of step 0.
+
+### Step 1: clone, filter, force-push
+
+```bash
 rm -rf /tmp/ldstack-mirror-sync
 git clone --no-local . /tmp/ldstack-mirror-sync
 cd /tmp/ldstack-mirror-sync
-git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path .github/workflows/ --path Formula/ --path bucket/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
+git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path .github/workflows/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
 git remote add mirror https://github.com/krishgok/localdevstack.git
 git push --force mirror master:main    # local master → remote main (mirror's default branch)
 git push mirror --tags    # no --force on tags; collisions mean someone retagged manually

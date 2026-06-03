@@ -14,12 +14,6 @@ docs/maintainer/            export-ignore
 # dev repo only; the mirror's Actions tab stays empty.
 .github/workflows/          export-ignore
 
-# Release-managed paths: release.yml's publish step owns these on the mirror
-# (it edits + commits them per release). Source-sync must not roll them back
-# to the dev repo's stale placeholder copies.
-Formula/                    export-ignore
-bucket/                     export-ignore
-
 # Gradle wrapper line endings — gradlew must stay LF for Linux/macOS runners.
 gradlew                     text eol=lf
 *.bat                       text eol=crlf

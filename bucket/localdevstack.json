@@ -1,12 +1,12 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.1",
   "description": "Scaffold a local development stack with hot-reload for any service and database",
   "homepage": "https://github.com/krishgok/localdevstack",
   "license": "Proprietary",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/krishgok/localdevstack/releases/download/v1.1.0/localdevstack-1.1.0-windows-x64.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "url": "https://github.com/krishgok/localdevstack/releases/download/v1.2.1/localdevstack-1.2.1-windows-x64.zip",
+      "hash": "ef389da41bae041d614db939d080372ba80245e93feb2767465cd868a9b78040",
       "bin": "localdevstack-windows-x64.exe",
       "shortcuts": [["localdevstack-windows-x64.exe", "localdevstack"]]
     }
