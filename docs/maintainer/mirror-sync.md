@@ -41,8 +41,10 @@ Use `git-filter-repo` on a scratch clone — never run `filter-repo` on your mai
 git clone --no-local . /tmp/ldstack-mirror-sync
 cd /tmp/ldstack-mirror-sync
 
-# 2. Strip maintainer-only paths from history.
-git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
+# 2. Strip maintainer-only paths AND CI-managed paths from history.
+#    .github/workflows/ — the mirror must not run CI; release.yml triggers only in the dev repo.
+#    Formula/ + bucket/ — owned by release.yml's publish step on the mirror; source-sync must not roll them back.
+git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path .github/workflows/ --path Formula/ --path bucket/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
 
 # 3. Verify the filtered tree looks right (no mirror-excluded files present).
 git log --name-only --oneline | head -40
@@ -56,7 +58,10 @@ git push --force mirror master:main
 git push --force mirror --tags
 ```
 
-The filter list must stay in sync with the `.gitattributes` `export-ignore` patterns at the repo root — when you add a new mirror-excluded path, update both.
+The filter list must stay in sync with the `.gitattributes` `export-ignore` patterns at the repo root — when you add a new mirror-excluded path, update both. Two distinct reasons drive entries on these lists:
+
+- **Maintainer-only paths** (`CLAUDE.md`, `MAINTAINING.md`, `.gitattributes`, `gen-build-deploy-tests/`, `docs/maintainer/`, `claude-test-*`, `sweep*.out`, `smoke-*`) — kept private to the dev repo.
+- **CI-managed paths on the mirror** (`.github/workflows/`, `Formula/`, `bucket/`) — owned by `release.yml`'s publish step, which clones the mirror and commits to these directly. If source-sync includes them, the next `git push --force` rewinds the mirror's main and loses whatever the release workflow just pushed (observed in the v1.2.1 incident: formula reverted to v1.1.0 placeholders, brew install broke). `.github/workflows/` is excluded so the mirror's Actions tab stays quiet — the only release workflow that should run lives in the dev repo; the mirror's copy would re-trigger on every tag push and fail (Windows build is unreliable on the mirror because `.gitattributes` is filter-excluded, which corrupts the wrapper JAR on Windows runners).
 
 ### 4. Seed the package-manager artifacts on the mirror
 
@@ -121,7 +126,7 @@ The CI release workflow only publishes binaries + updates the formula/manifest �
 rm -rf /tmp/ldstack-mirror-sync
 git clone --no-local . /tmp/ldstack-mirror-sync
 cd /tmp/ldstack-mirror-sync
-git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
+git filter-repo --invert-paths --path CLAUDE.md --path MAINTAINING.md --path .gitattributes --path gen-build-deploy-tests/ --path docs/maintainer/ --path .github/workflows/ --path Formula/ --path bucket/ --path-glob 'claude-test-*' --path-glob 'sweep*.out' --path-glob 'smoke-*'
 git remote add mirror https://github.com/krishgok/localdevstack.git
 git push --force mirror master:main    # local master → remote main (mirror's default branch)
 git push mirror --tags    # no --force on tags; collisions mean someone retagged manually
